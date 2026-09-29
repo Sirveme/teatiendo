@@ -108,11 +108,12 @@ async def _procesar_mensaje(pool, tenant_id: int, msg: dict, nombres: dict) -> N
         return
     marca = int(msg.get("timestamp") or 0)
     recibido_en = datetime.fromtimestamp(marca, tz=timezone.utc) if marca else datetime.now(timezone.utc)
-    contacto_id = await db.upsert_contacto_entrante(pool, tenant_id, wa_id, nombres.get(wa_id), recibido_en)
+    contacto_id = await db.upsert_contacto_entrante(pool, tenant_id, wa_id, nombres.get(wa_id), recibido_en,
+                                                    canal=db.CANAL_WHATSAPP)
     tipo, texto = _extraer_contenido(msg)
     nuevo = await db.insertar_mensaje(
         pool, tenant_id, contacto_id, wamid=wamid, direccion="in", tipo=tipo,
-        texto=texto, estado=None, creado_en=recibido_en,
+        texto=texto, estado=None, creado_en=recibido_en, canal=db.CANAL_WHATSAPP,
     )
     if nuevo is None:
         log.info("Mensaje %s ya registrado; se ignora el duplicado", wamid)

@@ -4,6 +4,8 @@ from datetime import datetime
 
 import asyncpg
 
+CANAL_WHATSAPP = "whatsapp"
+
 
 async def _preparar_conexion(con: asyncpg.Connection) -> None:
     await con.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
@@ -46,29 +48,30 @@ async def guardar_evento(pool, payload: dict) -> None:
 
 # --- Contactos ---------------------------------------------------------------
 
-async def upsert_contacto_entrante(pool, tenant_id: int, wa_id: str, nombre: str | None, recibido_en: datetime) -> int:
+async def upsert_contacto_entrante(pool, tenant_id: int, wa_id: str, nombre: str | None, recibido_en: datetime,
+                                   canal: str = CANAL_WHATSAPP) -> int:
     return await pool.fetchval(
         """
-        INSERT INTO contacts (tenant_id, wa_id, nombre_perfil, ultimo_mensaje_entrante_en)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (tenant_id, wa_id) DO UPDATE SET
+        INSERT INTO contacts (tenant_id, canal, wa_id, nombre_perfil, ultimo_mensaje_entrante_en)
+        VALUES ($1, $5, $2, $3, $4)
+        ON CONFLICT (tenant_id, canal, wa_id) DO UPDATE SET
             nombre_perfil = COALESCE(EXCLUDED.nombre_perfil, contacts.nombre_perfil),
             ultimo_mensaje_entrante_en = GREATEST(contacts.ultimo_mensaje_entrante_en,
                                                   EXCLUDED.ultimo_mensaje_entrante_en)
         RETURNING id
         """,
-        tenant_id, wa_id, nombre, recibido_en,
+        tenant_id, wa_id, nombre, recibido_en, canal,
     )
 
 
-async def upsert_contacto(pool, tenant_id: int, wa_id: str) -> int:
+async def upsert_contacto(pool, tenant_id: int, wa_id: str, canal: str = CANAL_WHATSAPP) -> int:
     return await pool.fetchval(
         """
-        INSERT INTO contacts (tenant_id, wa_id) VALUES ($1, $2)
-        ON CONFLICT (tenant_id, wa_id) DO UPDATE SET wa_id = EXCLUDED.wa_id
+        INSERT INTO contacts (tenant_id, canal, wa_id) VALUES ($1, $3, $2)
+        ON CONFLICT (tenant_id, canal, wa_id) DO UPDATE SET wa_id = EXCLUDED.wa_id
         RETURNING id
         """,
-        tenant_id, wa_id,
+        tenant_id, wa_id, canal,
     )
 
 
@@ -114,16 +117,17 @@ async def listar_mensajes(pool, tenant_id: int, contacto_id: int, limite: int = 
 
 async def insertar_mensaje(pool, tenant_id: int, contacto_id: int, *, wamid: str | None, direccion: str,
                            tipo: str, texto: str | None, estado: str | None,
-                           error_json=None, creado_en: datetime | None = None) -> int | None:
+                           error_json=None, creado_en: datetime | None = None,
+                           canal: str = CANAL_WHATSAPP) -> int | None:
     """Inserta un mensaje. Si el wamid ya existe no duplica y devuelve None (idempotencia)."""
     return await pool.fetchval(
         """
-        INSERT INTO messages (tenant_id, contact_id, wamid, direccion, tipo, texto, estado, error_json, creado_en)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, now()))
+        INSERT INTO messages (tenant_id, contact_id, canal, wamid, direccion, tipo, texto, estado, error_json, creado_en)
+        VALUES ($1, $2, $10, $3, $4, $5, $6, $7, $8, COALESCE($9, now()))
         ON CONFLICT (wamid) DO NOTHING
         RETURNING id
         """,
-        tenant_id, contacto_id, wamid, direccion, tipo, texto, estado, error_json, creado_en,
+        tenant_id, contacto_id, wamid, direccion, tipo, texto, estado, error_json, creado_en, canal,
     )
 
 
