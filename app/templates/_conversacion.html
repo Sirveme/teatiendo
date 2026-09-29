@@ -1,0 +1,82 @@
+{% macro form_plantilla() %}
+<form class="form-plantilla" data-grupo-plantilla
+      hx-post="/bandeja/{{ contacto.id }}/plantilla" hx-target="#conversacion" hx-swap="outerHTML"
+      hx-disabled-elt="find button[type=submit]">
+  {% if plantillas %}
+  <div class="fila-plantilla">
+    <select name="plantilla_id" required data-selector-plantilla aria-label="Plantilla aprobada">
+      <option value="">Elige una plantilla aprobada…</option>
+      {% for p in plantillas %}
+      <option value="{{ p.id }}" data-cuerpo="{{ p.cuerpo }}" data-vars="{{ p.vars }}">{{ p.nombre }} ({{ p.idioma }})</option>
+      {% endfor %}
+    </select>
+    <button class="boton" type="submit">Enviar plantilla</button>
+  </div>
+  <div class="variables" data-variables data-valores='[]'></div>
+  <div class="vista-previa" data-vista-previa></div>
+  {% else %}
+  <p class="nota">No hay plantillas aprobadas todavía. <a href="/plantillas">Crea o sincroniza tus plantillas</a>.</p>
+  {% endif %}
+</form>
+{% endmacro %}
+
+{% set nombre = contacto.nombre_perfil or ('+' ~ contacto.wa_id) %}
+<section id="conversacion" class="conversacion">
+  <header class="conv-cab">
+    <a href="/bandeja" class="volver" aria-label="Volver a la bandeja">←</a>
+    <span class="avatar">{{ nombre.lstrip('+')[:1] | upper }}</span>
+    <div class="conv-titulo">
+      <strong>{{ nombre }}</strong>
+      <span>+{{ contacto.wa_id }}</span>
+    </div>
+    <span id="ventana" class="insignia {{ 'insignia-ok' if ventana.abierta else 'insignia-alerta' }}"
+          title="WhatsApp permite texto libre solo durante las 24 horas siguientes al último mensaje del cliente.">
+      {{ ventana.texto }}
+    </span>
+  </header>
+
+  <div id="mensajes" class="mensajes" data-ventana="{{ 'abierta' if ventana.abierta else 'cerrada' }}"
+       hx-get="/parcial/conversacion/{{ contacto.id }}" hx-trigger="every 5s"
+       hx-select="#mensajes" hx-select-oob="#ventana" hx-swap="outerHTML">
+    {% for m in mensajes %}
+      {% if loop.changed(m.creado_en | dia) %}<div class="separador">{{ m.creado_en | dia }}</div>{% endif %}
+      <div class="burbuja {{ 'saliente' if m.direccion == 'out' else 'entrante' }} {{ 'fallida' if m.estado == 'failed' }}">
+        {% if m.tipo == 'template' %}<span class="etiqueta">Plantilla</span>{% endif %}
+        <p>{{ m.texto or '[Mensaje sin texto]' }}</p>
+        <span class="meta-burbuja">
+          <time>{{ m.creado_en | hora }}</time>
+          {% if m.direccion == 'out' and m.estado in ESTADOS_MENSAJE %}
+            {% set icono, etiqueta = ESTADOS_MENSAJE[m.estado] %}
+            <span class="estado estado-{{ m.estado }}" title="{{ etiqueta }}">{{ icono }}<span class="sr">{{ etiqueta }}</span></span>
+          {% endif %}
+        </span>
+        {% if m.error_texto %}<div class="error-meta">{{ m.error_texto }}</div>{% endif %}
+      </div>
+    {% else %}
+      <p class="vacio-conv">Todavía no hay mensajes en esta conversación.</p>
+    {% endfor %}
+    {% if aviso_conv %}<div class="aviso-conv" role="alert">{{ aviso_conv }}</div>{% endif %}
+  </div>
+
+  <div id="composer" class="composer" data-modo="{{ 'abierta' if ventana.abierta else 'cerrada' }}">
+    {% if ventana.abierta %}
+    <form class="responder" hx-post="/bandeja/{{ contacto.id }}/responder" hx-target="#conversacion"
+          hx-swap="outerHTML" hx-disabled-elt="find button">
+      <textarea name="texto" rows="1" maxlength="4096" placeholder="Escribe un mensaje…" required
+                aria-label="Mensaje" data-enviar-con-enter></textarea>
+      <button class="boton" type="submit">Enviar</button>
+    </form>
+    <details class="usar-plantilla">
+      <summary>Enviar una plantilla aprobada</summary>
+      {{ form_plantilla() }}
+    </details>
+    {% else %}
+    <div class="ventana-cerrada">
+      <p><strong>Texto libre bloqueado.</strong>
+        {% if contacto.ultimo_mensaje_entrante_en %}Pasaron más de 24 horas desde el último mensaje del cliente.{% else %}Este cliente todavía no te ha escrito.{% endif %}
+        WhatsApp solo permite iniciar o retomar la conversación con una plantilla aprobada.</p>
+      {{ form_plantilla() }}
+    </div>
+    {% endif %}
+  </div>
+</section>

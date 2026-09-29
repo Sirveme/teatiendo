@@ -1,0 +1,31 @@
+<section id="lista-plantillas" class="tarjeta lista-plantillas"
+  {% if hay_en_revision %}hx-post="/plantillas/sincronizar" hx-trigger="every 30s" hx-swap="outerHTML"{% endif %}>
+  <div class="lista-cab">
+    <h2>Mis plantillas</h2>
+    <button class="boton boton-sec boton-sm" type="button"
+            hx-post="/plantillas/sincronizar" hx-target="#lista-plantillas" hx-swap="outerHTML"
+            hx-disabled-elt="this">
+      <span class="txt-normal">↻ Sincronizar con Meta</span><span class="txt-cargando">Sincronizando…</span>
+    </button>
+  </div>
+  {% if sync_error %}<div class="alerta alerta-error">{{ sync_error }}</div>{% endif %}
+  {% if sync_info %}<p class="sync-info">{{ sync_info }}{% if hay_en_revision %} · se actualiza cada 30 s mientras haya plantillas en revisión{% endif %}</p>{% endif %}
+
+  {% for p in lista %}
+  {% set etiqueta, clase = ESTADOS_PLANTILLA.get(p.estado_meta, (p.estado_meta, 'pendiente')) %}
+  <article class="plantilla">
+    <div class="plantilla-cab">
+      <code class="plantilla-nombre">{{ p.nombre }}</code>
+      <span class="estado-plantilla estado-{{ clase }}">{{ etiqueta }} · {{ p.estado_meta }}</span>
+    </div>
+    <p class="plantilla-meta">{{ CATEGORIAS.get(p.categoria, p.categoria) }} · {{ p.idioma }} · {{ p.creado_en | fecha_hora }}</p>
+    {% if p.cuerpo %}<p class="plantilla-cuerpo">{{ p.cuerpo }}</p>{% endif %}
+    {% if p.motivo_rechazo %}<p class="plantilla-rechazo"><strong>Motivo del rechazo:</strong> {{ p.motivo_rechazo }}</p>{% endif %}
+  </article>
+  {% else %}
+  <div class="vacio-lista">
+    <p><strong>No hay plantillas registradas.</strong></p>
+    <p>Crea tu primera plantilla o pulsa «Sincronizar con Meta» para traer las que ya existen en tu cuenta.</p>
+  </div>
+  {% endfor %}
+</section>

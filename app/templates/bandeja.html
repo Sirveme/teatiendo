@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block titulo %}Bandeja{% endblock %}
+{% block contenido %}
+<div class="bandeja {{ 'con-conversacion' if contacto }}">
+  <nav id="contactos" class="contactos" aria-label="Conversaciones"
+       hx-get="{{ request.url.path }}" hx-trigger="every 10s" hx-select="#contactos" hx-swap="outerHTML">
+    <div class="contactos-cab">
+      <h1>Bandeja</h1>
+      <a class="boton boton-sm" href="/nuevo">+ Nuevo</a>
+    </div>
+    {% for c in contactos %}
+    {% set nombre = c.nombre_perfil or ('+' ~ c.wa_id) %}
+    <a href="/bandeja/{{ c.id }}" class="contacto {{ 'activo' if contacto and contacto.id == c.id }}">
+      <span class="avatar">{{ nombre.lstrip('+')[:1] | upper }}</span>
+      <span class="contacto-info">
+        <span class="contacto-fila">
+          <strong>{{ nombre }}</strong>
+          <time>{{ c.ultimo_en | hora_lista }}</time>
+        </span>
+        <span class="contacto-previa">{% if c.ultima_direccion == 'out' %}Tú: {% endif %}{{ c.ultimo_texto or 'Sin mensajes' }}</span>
+      </span>
+    </a>
+    {% else %}
+    <div class="vacio-lista">
+      <p><strong>Aún no hay conversaciones.</strong></p>
+      <p>Cuando un cliente escriba a tu número de WhatsApp aparecerá aquí. También puedes iniciar una con <a href="/nuevo">Nuevo mensaje</a>.</p>
+    </div>
+    {% endfor %}
+  </nav>
+
+  <div class="panel-conversacion">
+    {% if contacto %}
+      {% include "_conversacion.html" %}
+    {% else %}
+    <div class="estado-vacio">
+      <svg viewBox="0 0 24 24" width="56" height="56" aria-hidden="true"><path d="M4 5h16v10h-4l-2 3h-4l-2-3H4z"/></svg>
+      <h2>Selecciona una conversación</h2>
+      <p>Elige un contacto de la lista para ver sus mensajes y responder.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

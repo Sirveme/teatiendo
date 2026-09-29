@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block titulo %}Nuevo mensaje{% endblock %}
+{% block contenido %}
+<div class="pagina">
+  <div class="pagina-cab">
+    <h1>Nuevo mensaje</h1>
+    <p>Inicia una conversación enviando una plantilla aprobada por Meta. El texto libre solo se habilita cuando el cliente responde.</p>
+  </div>
+
+  <div class="grid-nuevo" data-grupo-plantilla>
+    <form method="post" action="/nuevo" class="tarjeta formulario">
+      {% if error %}<div class="alerta alerta-error" role="alert">{{ error }}</div>{% endif %}
+
+      <label>Número de WhatsApp destino
+        <input type="tel" name="numero" value="{{ numero }}" inputmode="tel" placeholder="51987654321" required>
+      </label>
+      <p class="ayuda">Con código de país, sin «+» ni espacios. Si escribes 9 dígitos que empiezan con 9, se asume Perú (+51).</p>
+
+      {% if plantillas %}
+      <label>Plantilla aprobada
+        <select name="plantilla_id" required data-selector-plantilla>
+          <option value="">Elige una plantilla…</option>
+          {% for p in plantillas %}
+          <option value="{{ p.id }}" data-cuerpo="{{ p.cuerpo }}" data-vars="{{ p.vars }}" {{ 'selected' if p.id == plantilla_id }}>{{ p.nombre }} ({{ p.idioma }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="variables" data-variables data-valores='{{ valores | tojson }}'></div>
+      <button class="boton boton-bloque" type="submit">Enviar plantilla</button>
+      {% else %}
+      <div class="alerta alerta-info">
+        No tienes plantillas aprobadas. <a href="/plantillas">Crea una o sincroniza con Meta</a>
+        (toda cuenta nueva incluye la plantilla de ejemplo <code>hello_world</code>).
+      </div>
+      {% endif %}
+    </form>
+
+    <aside class="tarjeta vista-telefono" aria-label="Vista previa">
+      <p class="vista-titulo">Vista previa en WhatsApp</p>
+      <div class="telefono">
+        <div class="vista-previa vista-previa-fija" data-vista-previa
+             data-vacio="Elige una plantilla para ver cómo la recibirá tu cliente."></div>
+      </div>
+      <p class="ayuda">{% raw %}Las variables {{1}}, {{2}}… se reemplazan por los valores que escribas.{% endraw %}</p>
+    </aside>
+  </div>
+</div>
+{% endblock %}

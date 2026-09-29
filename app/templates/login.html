@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block titulo %}Iniciar sesión{% endblock %}
+{% block publico %}
+<div class="login-pagina">
+  <div class="login-tarjeta">
+    <div class="login-marca">
+      <svg viewBox="0 0 32 32" width="52" height="52" aria-hidden="true"><path d="M16 3C8.8 3 3 8.3 3 14.8c0 3.3 1.5 6.3 4 8.4L6 29l6-3c1.3.4 2.6.6 4 .6 7.2 0 13-5.3 13-11.8S23.2 3 16 3z" fill="#D4A017"/><path d="M10.5 15.2l3.6 3.4 7.4-7.2" fill="none" stroke="#2A0505" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>Te Atiendo</h1>
+      <p>Atención y ventas por WhatsApp</p>
+    </div>
+    {% if error %}<div class="alerta alerta-error" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" action="/login" class="formulario">
+      <label>Correo electrónico
+        <input type="email" name="email" value="{{ email }}" autocomplete="username" required autofocus>
+      </label>
+      <label>Contraseña
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button class="boton boton-bloque" type="submit">Ingresar</button>
+    </form>
+    <p class="login-pie">PERU SISTEMAS PRO E.I.R.L.</p>
+  </div>
+</div>
+{% endblock %}

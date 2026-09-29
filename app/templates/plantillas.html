@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block titulo %}Plantillas{% endblock %}
+{% block contenido %}
+<div class="pagina">
+  <div class="pagina-cab">
+    <h1>Plantillas de mensaje</h1>
+    <p>Crea plantillas y envíalas a revisión de Meta. Solo las plantillas aprobadas pueden usarse para iniciar conversaciones o retomar una fuera de la ventana de 24 horas.</p>
+  </div>
+
+  <div class="grid-plantillas">
+    <section class="tarjeta">
+      <h2>Nueva plantilla</h2>
+      {% if error %}<div class="alerta alerta-error" role="alert">{{ error }}</div>{% endif %}
+      <form method="post" action="/plantillas" class="formulario" data-form-plantilla>
+        <label>Nombre
+          <input name="nombre" value="{{ form.nombre or '' }}" maxlength="512" pattern="[a-z0-9_]+"
+                 placeholder="confirmacion_pedido" autocomplete="off" required data-nombre-plantilla>
+        </label>
+        <p class="ayuda">Solo minúsculas, números y guion bajo. Los espacios se convierten en «_» automáticamente.</p>
+
+        <div class="fila-2">
+          <label>Idioma
+            <input value="Español (es)" readonly aria-readonly="true">
+          </label>
+          <label>Categoría
+            <select name="categoria" required>
+              <option value="UTILITY" {{ 'selected' if form.categoria == 'UTILITY' }}>Utilidad (UTILITY)</option>
+              <option value="MARKETING" {{ 'selected' if form.categoria == 'MARKETING' }}>Marketing (MARKETING)</option>
+            </select>
+          </label>
+        </div>
+
+        <label>Cuerpo del mensaje
+          <textarea name="cuerpo" rows="6" maxlength="1024" required data-cuerpo-plantilla
+                    placeholder="{% raw %}Hola {{1}}, tu pedido {{2}} ya está listo para recoger. ¡Gracias por tu compra!{% endraw %}">{{ form.cuerpo or '' }}</textarea>
+        </label>
+        <div class="cuerpo-herramientas">
+          <button type="button" class="boton boton-sec boton-sm" data-agregar-variable>+ Agregar variable</button>
+          <span class="contador" data-contador>0 / 1024</span>
+        </div>
+        <p class="ayuda">{% raw %}Usa {{1}}, {{2}}… para los datos que cambian en cada envío. El cuerpo no puede empezar ni terminar con una variable.{% endraw %}</p>
+        <p class="advertencia" data-advertencia hidden></p>
+
+        <div class="variables" data-ejemplos data-valores='{{ form.ejemplos | tojson }}'></div>
+
+        <p class="vista-titulo">Vista previa</p>
+        <div class="telefono telefono-compacto">
+          <div class="vista-previa vista-previa-fija" data-vista-previa-plantilla data-vacio="Escribe el cuerpo para ver la vista previa."></div>
+        </div>
+
+        <button class="boton boton-bloque" type="submit">Enviar a revisión de Meta</button>
+      </form>
+    </section>
+
+    {% include "_plantillas_lista.html" %}
+  </div>
+  <div hx-post="/plantillas/sincronizar" hx-trigger="load" hx-target="#lista-plantillas" hx-swap="outerHTML"></div>
+</div>
+{% endblock %}
