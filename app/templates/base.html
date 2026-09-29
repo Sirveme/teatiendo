@@ -1,3 +1,14 @@
+{%- macro pie() -%}
+<footer class="pie">
+  <span>Te Atiendo · un producto de PERU SISTEMAS PRO E.I.R.L. · RUC 20615446565</span>
+  <nav class="pie-enlaces" aria-label="Información legal">
+    <a href="https://perusistemas.pro/privacidad" target="_blank" rel="noopener">Privacidad</a>
+    <a href="https://perusistemas.pro/terminos" target="_blank" rel="noopener">Términos</a>
+    <a href="https://perusistemas.pro/eliminar-datos" target="_blank" rel="noopener">Eliminación de datos</a>
+  </nav>
+  <span>© 2026</span>
+</footer>
+{%- endmacro -%}
 <!doctype html>
 <html lang="es">
 <head>
@@ -40,9 +51,13 @@
     {% endif %}
     {% block contenido %}{% endblock %}
   </main>
+  {{ pie() }}
 </div>
 {% else %}
-{% block publico %}{% endblock %}
+<div class="publico">
+  {% block publico %}{% endblock %}
+  {{ pie() }}
+</div>
 {% endif %}
 </body>
 </html>
