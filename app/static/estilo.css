@@ -101,8 +101,9 @@ textarea { resize: vertical; line-height: 1.45; }
 .tarjeta h2 { margin-bottom: 16px; }
 
 /* --- Estructura ------------------------------------------------------------ */
-.app { display: grid; grid-template-columns: 236px 1fr; height: 100vh; height: 100dvh; }
+.app { display: grid; grid-template-columns: 236px 1fr; grid-template-rows: minmax(0, 1fr) auto; height: 100vh; height: 100dvh; }
 .barra {
+  grid-row: 1 / span 2;
   display: flex; flex-direction: column; padding: 20px 14px;
   background: linear-gradient(180deg, #3A0606 0%, var(--fondo) 100%);
   border-right: 1px solid var(--borde);
@@ -116,7 +117,19 @@ textarea { resize: vertical; line-height: 1.45; }
 .nav svg, .estado-vacio svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
 .barra-pie { margin-top: auto; padding: 14px 8px 0; border-top: 1px solid var(--borde-2); font-size: .8rem; display: flex; flex-direction: column; gap: 4px; }
 .usuario { color: var(--texto-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.contenido { position: relative; min-width: 0; overflow-y: auto; }
+.contenido { position: relative; min-width: 0; min-height: 0; overflow-y: auto; }
+
+/* Pie legal: ocupa su propia fila de la grilla, nunca se superpone al contenido */
+.pie {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 14px;
+  padding: 6px 16px; font-size: .7rem; line-height: 1.4; color: var(--texto-3); text-align: center;
+  background: var(--fondo); border-top: 1px solid var(--borde-2);
+}
+.pie-enlaces { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 2px 12px; }
+.pie a { color: var(--texto-3); }
+.pie a:hover, .pie a:focus-visible { color: var(--dorado); text-decoration: underline; }
+.publico { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; background: radial-gradient(circle at 20% 10%, var(--panel) 0%, var(--fondo) 60%); }
+.publico .pie { background: transparent; }
 
 .pagina { max-width: 1180px; margin: 0 auto; padding: 30px 28px 56px; }
 .pagina-cab { margin-bottom: 24px; }
@@ -230,7 +243,7 @@ time { font-size: .74rem; color: var(--texto-3); white-space: nowrap; }
 .estado-error { color: var(--error); border-color: rgba(255, 158, 140, .4); background: rgba(255, 158, 140, .08); }
 
 /* --- Login ----------------------------------------------------------------- */
-.login-pagina { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 16px; background: radial-gradient(circle at 20% 10%, var(--panel) 0%, var(--fondo) 60%); }
+.login-pagina { flex: 1; display: grid; place-items: center; padding: 16px; }
 .login-tarjeta { width: 100%; max-width: 400px; padding: 34px 30px 24px; border-radius: 18px; background: rgba(74, 8, 8, .75); border: 1px solid var(--borde); box-shadow: var(--sombra); }
 .login-marca { text-align: center; margin-bottom: 24px; }
 .login-marca h1 { margin-top: 10px; font-size: 1.6rem; }
@@ -242,8 +255,9 @@ time { font-size: .74rem; color: var(--texto-3); white-space: nowrap; }
   .grid-nuevo, .grid-plantillas { grid-template-columns: 1fr; }
 }
 @media (max-width: 860px) {
-  .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  .barra { flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--borde); }
+  .app { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr) auto; }
+  .pie { padding: 5px 12px; gap: 0 10px; font-size: .66rem; }
+  .barra { grid-row: auto; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--borde); }
   .marca { padding: 0; font-size: 1rem; }
   .marca small, .usuario { display: none; }
   .nav { display: flex; gap: 2px; margin-left: auto; }
