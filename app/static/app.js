@@ -221,6 +221,94 @@
     }
   });
 
+  /* --- CRM: panel de detalles desplegable (pantallas angostas) --- */
+  document.addEventListener('click', function (e) {
+    var bandeja = document.querySelector('[data-bandeja]');
+    if (!bandeja) return;
+    if (e.target.closest('[data-abrir-detalles]')) bandeja.classList.add('mostrar-detalles');
+    if (e.target.closest('[data-cerrar-detalles]')) bandeja.classList.remove('mostrar-detalles');
+  });
+
+  /* --- CRM: al elegir "Perdido" se pide el motivo --- */
+  function actualizarMotivo(select) {
+    var form = select.closest('[data-form-etapa]');
+    var bloque = form && form.querySelector('[data-motivo]');
+    if (!bloque) return;
+    var opcion = select.options[select.selectedIndex];
+    var perdido = opcion && opcion.getAttribute('data-perdido') === '1';
+    bloque.hidden = !perdido;
+    var motivo = bloque.querySelector('select[name=motivo]');
+    if (motivo) motivo.required = perdido;
+  }
+
+  /* --- CRM: pipeline (arrastrar y soltar, menú "Mover a…" y diálogo de pérdida) --- */
+  function enviarMovimiento(contacto, etapa, extra) {
+    var valores = { etapa_id: etapa, vista: 'pipeline' };
+    Object.keys(extra || {}).forEach(function (k) { valores[k] = extra[k]; });
+    window.htmx.ajax('POST', '/contactos/' + contacto + '/etapa',
+      { target: '#tablero', select: '#tablero', swap: 'outerHTML', values: valores });
+  }
+
+  function moverEtapa(contacto, etapa, esPerdido, alCancelar) {
+    if (!esPerdido) { enviarMovimiento(contacto, etapa); return; }
+    var dialogo = document.getElementById('dialogo-perdido');
+    var form = dialogo && dialogo.querySelector('form');
+    if (!form || !dialogo.showModal) { if (alCancelar) alCancelar(); return; }
+    form.reset();
+    dialogo.onclose = function () {
+      if (dialogo.returnValue === 'confirmar' && form.motivo.value) {
+        enviarMovimiento(contacto, etapa, { motivo: form.motivo.value, motivo_detalle: form.motivo_detalle.value });
+      } else if (alCancelar) {
+        alCancelar();
+      }
+    };
+    dialogo.showModal();
+  }
+
+  document.addEventListener('change', function (e) {
+    var select = e.target;
+    if (select.matches('[data-select-etapa]')) actualizarMotivo(select);
+    if (select.matches('[data-mover-contacto]') && select.value) {
+      var opcion = select.options[select.selectedIndex];
+      moverEtapa(select.getAttribute('data-mover-contacto'), select.value,
+        opcion.getAttribute('data-perdido') === '1', function () { select.value = ''; });
+    }
+  });
+
+  var arrastrado = null;
+  document.addEventListener('dragstart', function (e) {
+    var tarjeta = e.target.closest && e.target.closest('.tarjeta-contacto');
+    if (!tarjeta) return;
+    arrastrado = tarjeta;
+    tarjeta.classList.add('arrastrando');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', tarjeta.getAttribute('data-contacto'));
+  });
+  document.addEventListener('dragend', function () {
+    if (arrastrado) arrastrado.classList.remove('arrastrando');
+    arrastrado = null;
+    buscar(document, '.columna.sobre').forEach(function (c) { c.classList.remove('sobre'); });
+  });
+  document.addEventListener('dragover', function (e) {
+    var columna = arrastrado && e.target.closest && e.target.closest('.columna');
+    if (!columna) return;
+    e.preventDefault();
+    columna.classList.add('sobre');
+  });
+  document.addEventListener('dragleave', function (e) {
+    var columna = e.target.closest && e.target.closest('.columna');
+    if (columna && !columna.contains(e.relatedTarget)) columna.classList.remove('sobre');
+  });
+  document.addEventListener('drop', function (e) {
+    var columna = arrastrado && e.target.closest && e.target.closest('.columna');
+    if (!columna) return;
+    e.preventDefault();
+    columna.classList.remove('sobre');
+    if (columna.contains(arrastrado)) return;  // misma columna
+    moverEtapa(arrastrado.getAttribute('data-contacto'), columna.getAttribute('data-etapa'),
+      columna.getAttribute('data-perdido') === '1');
+  });
+
   document.addEventListener('htmx:load', function (e) { iniciar(e.detail.elt); });
   document.addEventListener('DOMContentLoaded', function () {
     iniciar(document);
@@ -228,14 +316,14 @@
     var sim = document.getElementById('sim-mensajes');
     if (sim) sim.scrollTop = sim.scrollHeight;
     var texto = document.querySelector('#simulador textarea');
-    if (texto) texto.focus();
+    if (texto) texto.focus({ preventScroll: true });
   });
   document.addEventListener('htmx:afterSettle', function () {
     var sim = document.getElementById('sim-mensajes');
     if (sim) {
       sim.scrollTop = sim.scrollHeight;
       var texto = sim.parentNode.querySelector('textarea');
-      if (texto) texto.focus();
+      if (texto) texto.focus({ preventScroll: true });
     }
   });
 })();
