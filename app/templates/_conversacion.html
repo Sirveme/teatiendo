@@ -29,6 +29,7 @@
       <strong>{{ nombre }}</strong>
       <span>+{{ contacto.wa_id }}</span>
     </div>
+    <button class="boton boton-sec boton-sm abrir-detalles" type="button" data-abrir-detalles aria-label="Ver detalles del contacto">Detalles</button>
     <span id="ventana" class="insignia {{ 'insignia-ok' if ventana.abierta else 'insignia-alerta' }}"
           title="WhatsApp permite texto libre solo durante las 24 horas siguientes al último mensaje del cliente.">
       {{ ventana.texto }}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block titulo %}Pipeline{% endblock %}
+{% block contenido %}
+<div class="pagina pagina-ancha">
+  <div class="pagina-cab">
+    <h1>Pipeline</h1>
+    <p>Tus conversaciones por etapa. Arrastra una tarjeta a otra columna o usa «Mover a…». La IA solo avanza etapas tempranas; pagos, comprobantes y entregas los marca tu equipo.</p>
+  </div>
+
+  <div id="tablero" class="tablero" data-tablero>
+    {% if error %}<div class="alerta alerta-error tablero-alerta" role="alert">{{ error }}</div>{% endif %}
+    {% if recortado %}<p class="ayuda-bloque tablero-alerta">Se muestran las {{ limite }} conversaciones más recientes.</p>{% endif %}
+    {% for col in columnas %}
+    {% set e = col.etapa %}
+    <section class="columna" style="--color-etapa: {{ e.color }}" data-etapa="{{ e.id }}" data-perdido="{{ 1 if e.es_perdido else 0 }}" aria-label="{{ e.nombre }}">
+      <header class="columna-cab">
+        <span class="columna-nombre">{{ e.nombre }}</span>
+        <span class="columna-cuenta">{{ col.tarjetas | length }}</span>
+      </header>
+      {% if col.total %}<p class="columna-total">S/ {{ '{:,.2f}'.format(col.total) }}</p>{% endif %}
+      <div class="columna-tarjetas">
+        {% for t in col.tarjetas %}
+        <article class="tarjeta-contacto" draggable="true" data-contacto="{{ t.id }}">
+          <a class="tarjeta-nombre" href="/bandeja/{{ t.id }}">{{ t.nombre }}</a>
+          {% if t.producto %}<p class="tarjeta-dato">{{ t.producto }}</p>{% endif %}
+          <div class="tarjeta-pie">
+            {% if t.monto %}<span class="tarjeta-monto">S/ {{ t.monto }}</span>{% endif %}
+            {% if t.tiempo %}<span class="nota-det" title="Tiempo en esta etapa">{{ t.tiempo }}</span>{% endif %}
+            {% if t.atencion %}<span class="insignia-atencion">Atención</span>{% endif %}
+            {% if t.no_leidos %}<span class="contador-no-leidos">{{ t.no_leidos }}</span>{% endif %}
+          </div>
+          <select class="mover-a" aria-label="Mover {{ t.nombre }} a otra etapa" data-mover-contacto="{{ t.id }}">
+            <option value="">Mover a…</option>
+            {% for otra in etapas if otra.id != e.id %}
+            <option value="{{ otra.id }}" data-perdido="{{ 1 if otra.es_perdido else 0 }}">{{ otra.nombre }}</option>
+            {% endfor %}
+          </select>
+        </article>
+        {% else %}
+        <p class="columna-vacia">Sin contactos</p>
+        {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+</div>
+
+<dialog id="dialogo-perdido" class="dialogo">
+  <form method="dialog" class="formulario" data-form-perdido>
+    <h2>Marcar como perdido</h2>
+    <label>Motivo
+      <select name="motivo" required>
+        <option value="">Elige un motivo…</option>
+        {% for m in motivos %}<option>{{ m }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Detalle (opcional)
+      <input name="motivo_detalle" maxlength="200">
+    </label>
+    <div class="dialogo-acciones">
+      <button class="boton boton-sec" value="cancelar" formnovalidate>Cancelar</button>
+      <button class="boton" value="confirmar">Marcar como perdido</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

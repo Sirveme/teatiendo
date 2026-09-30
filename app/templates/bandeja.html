@@ -1,32 +1,32 @@
 {% extends "base.html" %}
 {% block titulo %}Bandeja{% endblock %}
 {% block contenido %}
-<div class="bandeja {{ 'con-conversacion' if contacto }}">
-  <nav id="contactos" class="contactos" aria-label="Conversaciones"
-       hx-get="{{ request.url.path }}" hx-trigger="every 10s" hx-select="#contactos" hx-swap="outerHTML">
+<div class="bandeja {{ 'con-conversacion' if contacto }}" data-bandeja>
+  <nav id="contactos" class="contactos" aria-label="Conversaciones">
     <div class="contactos-cab">
       <h1>Bandeja</h1>
       <a class="boton boton-sm" href="/nuevo">+ Nuevo</a>
     </div>
-    {% for c in contactos %}
-    {% set nombre = c.nombre_perfil or ('+' ~ c.wa_id) %}
-    <a href="/bandeja/{{ c.id }}" class="contacto {{ 'activo' if contacto and contacto.id == c.id }}">
-      <span class="avatar">{{ nombre.lstrip('+')[:1] | upper }}</span>
-      <span class="contacto-info">
-        <span class="contacto-fila">
-          <strong>{{ nombre }}</strong>
-          <time>{{ c.ultimo_en | hora_lista }}</time>
-        </span>
-        <span class="contacto-previa">{% if c.ultima_direccion == 'out' %}Tú: {% endif %}{{ c.ultimo_texto or 'Sin mensajes' }}</span>
-        {% if c.modo == 'humano' and c.derivado_en %}<span class="insignia-atencion">Requiere atención</span>{% endif %}
-      </span>
-    </a>
-    {% else %}
-    <div class="vacio-lista">
-      <p><strong>Aún no hay conversaciones.</strong></p>
-      <p>Cuando un cliente escriba a tu número de WhatsApp aparecerá aquí. También puedes iniciar una con <a href="/nuevo">Nuevo mensaje</a>.</p>
-    </div>
-    {% endfor %}
+
+    <form id="filtros-bandeja" class="filtros-bandeja" role="search"
+          hx-get="/parcial/conversaciones" hx-target="#lista-conversaciones" hx-swap="outerHTML" hx-trigger="change, submit">
+      <input type="search" name="q" value="{{ filtros.q }}" placeholder="Buscar nombre, teléfono o dato…"
+             aria-label="Buscar conversaciones" autocomplete="off"
+             hx-get="/parcial/conversaciones" hx-include="#filtros-bandeja" hx-target="#lista-conversaciones"
+             hx-swap="outerHTML" hx-trigger="input changed delay:300ms, search">
+      <div class="chips-filtro" role="radiogroup" aria-label="Filtro">
+        {% for valor, etiqueta in [('', 'Todas'), ('no_leidas', 'No leídas'), ('atencion', 'Requiere atención')] %}
+        <label class="chip-filtro"><input type="radio" name="filtro" value="{{ valor }}" {{ 'checked' if filtros.filtro == valor }}><span>{{ etiqueta }}</span></label>
+        {% endfor %}
+      </div>
+      <select name="etapa" aria-label="Filtrar por etapa">
+        <option value="">Todas las etapas</option>
+        {% for e in etapas_filtro %}<option value="{{ e.id }}" {{ 'selected' if filtros.etapa == e.id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+      <input type="hidden" name="activo" value="{{ activo_id or '' }}">
+    </form>
+
+    {% include "_lista_conversaciones.html" %}
   </nav>
 
   <div class="panel-conversacion">
@@ -36,9 +36,15 @@
     <div class="estado-vacio">
       <svg viewBox="0 0 24 24" width="56" height="56" aria-hidden="true"><path d="M4 5h16v10h-4l-2 3h-4l-2-3H4z"/></svg>
       <h2>Selecciona una conversación</h2>
-      <p>Elige un contacto de la lista para ver sus mensajes y responder.</p>
+      <p>Elige un contacto de la lista para ver sus mensajes, su ficha y responder.</p>
     </div>
     {% endif %}
   </div>
+
+  {% if contacto %}
+  <aside class="panel-detalles" aria-label="Detalles del contacto">
+    {% include "_detalles.html" %}
+  </aside>
+  {% endif %}
 </div>
 {% endblock %}

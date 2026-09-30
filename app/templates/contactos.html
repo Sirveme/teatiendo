@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block titulo %}Contactos{% endblock %}
+{% block contenido %}
+<div class="pagina pagina-ancha">
+  <div class="pagina-cab pagina-cab-acciones">
+    <div>
+      <h1>Contactos</h1>
+      <p>Todos tus contactos de WhatsApp con su etapa, etiquetas y datos de la ficha.</p>
+    </div>
+    <a class="boton boton-sec" href="/contactos.csv{{ '?' ~ consulta if consulta }}" download>Exportar CSV</a>
+  </div>
+
+  <form class="tarjeta filtros-tabla" method="get" action="/contactos">
+    <label>Buscar
+      <input type="search" name="q" value="{{ filtros.q }}" placeholder="Nombre, teléfono o dato de la ficha">
+    </label>
+    <label>Etapa
+      <select name="etapa">
+        <option value="">Todas</option>
+        {% for e in etapas %}<option value="{{ e.id }}" {{ 'selected' if filtros.etapa == e.id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Etiqueta
+      <select name="etiqueta">
+        <option value="">Todas</option>
+        {% for t in etiquetas %}<option {{ 'selected' if filtros.etiqueta == t }}>{{ t }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="filtros-acciones">
+      <button class="boton" type="submit">Filtrar</button>
+      {% if filtros.q or filtros.etapa or filtros.etiqueta %}<a class="boton boton-sec" href="/contactos">Limpiar</a>{% endif %}
+    </div>
+  </form>
+
+  <section class="tarjeta">
+    <p class="ayuda-bloque">{{ contactos | length }} contacto{{ 's' if contactos | length != 1 }}{% if recortado %} (se muestran los {{ limite }} más recientes; el CSV incluye hasta 10 000){% endif %}. La exportación respeta los filtros y queda registrada.</p>
+    <div class="tabla-scroll">
+      <table class="tabla tabla-contactos">
+        <thead>
+          <tr><th>Contacto</th><th>Etapa</th><th>Etiquetas</th>{% for c in campos %}<th>{{ c.etiqueta }}</th>{% endfor %}<th>Origen</th><th>Último mensaje</th></tr>
+        </thead>
+        <tbody>
+          {% for c in contactos %}
+          <tr>
+            <td><a href="/bandeja/{{ c.id }}"><strong>{{ c.nombre_perfil or ('+' ~ c.wa_id) }}</strong></a><br><small>+{{ c.wa_id }}</small></td>
+            <td>{% if c.etapa_nombre %}<span class="chip-etapa" style="--color-etapa: {{ c.etapa_color }}">{{ c.etapa_nombre }}</span>{% endif %}</td>
+            <td>{% for t in c.etiquetas %}<span class="etiqueta-chip">{{ t }}</span>{% endfor %}</td>
+            {% for campo in campos %}<td>{{ ((c.ficha or {}).get(campo.clave) or {}).get('valor') or '—' }}</td>{% endfor %}
+            <td>{{ 'Anuncio' if c.origen_anuncio else '—' }}</td>
+            <td>{{ c.ultimo_en | fecha_hora if c.ultimo_en else '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="{{ 5 + campos | length }}" class="vacio-tabla">No hay contactos que coincidan.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

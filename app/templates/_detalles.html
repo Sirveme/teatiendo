@@ -1,0 +1,144 @@
+<div id="detalles" class="detalles"
+     hx-get="/parcial/detalles/{{ contacto.id }}" hx-swap="outerHTML"
+     hx-trigger="every 10s [!document.querySelector('#detalles :focus, #detalles .editando')]">
+  <div class="detalles-cab">
+    <h2>Detalles</h2>
+    <button class="boton boton-sec boton-sm cerrar-detalles" type="button" data-cerrar-detalles>Cerrar</button>
+  </div>
+  {% if aviso_detalles %}<p class="aviso-detalles" role="status">{{ aviso_detalles }}</p>{% endif %}
+
+  {# --- Etapa --- #}
+  <section class="bloque-det">
+    <h3>Etapa</h3>
+    {% if etapa_actual %}
+    <p class="etapa-actual">
+      <span class="chip-etapa" style="--color-etapa: {{ etapa_actual.color }}">{{ etapa_actual.nombre }}</span>
+      {% if tiempo_etapa %}<span class="nota-det">hace {{ tiempo_etapa }}</span>{% endif %}
+    </p>
+    {% if contacto.motivo_perdida %}<p class="nota-det">Motivo: {{ contacto.motivo_perdida }}</p>{% endif %}
+    {% endif %}
+    <form class="form-etapa" hx-post="/contactos/{{ contacto.id }}/etapa" hx-target="#detalles" hx-swap="outerHTML" data-form-etapa>
+      <select name="etapa_id" aria-label="Cambiar etapa" data-select-etapa>
+        {% for e in etapas %}
+        <option value="{{ e.id }}" data-perdido="{{ 1 if e.es_perdido else 0 }}" {{ 'selected' if etapa_actual and e.id == etapa_actual.id }}>{{ e.nombre }}</option>
+        {% endfor %}
+      </select>
+      <div class="motivo-perdida" data-motivo hidden>
+        <select name="motivo" aria-label="Motivo de la pérdida">
+          <option value="">Motivo…</option>
+          {% for m in motivos %}<option>{{ m }}</option>{% endfor %}
+        </select>
+        <input name="motivo_detalle" maxlength="200" placeholder="Detalle (opcional)" aria-label="Detalle del motivo">
+      </div>
+      <button class="boton boton-sm" type="submit">Mover</button>
+    </form>
+  </section>
+
+  {# --- IA en esta conversación --- #}
+  <section class="bloque-det">
+    <div class="fila-det">
+      <h3>IA en esta conversación</h3>
+      <form hx-post="/contactos/{{ contacto.id }}/modo" hx-target="#detalles" hx-swap="outerHTML">
+        <input type="hidden" name="modo" value="{{ 'humano' if contacto.modo == 'ia' else 'ia' }}">
+        <button type="submit" class="interruptor-ia {{ 'encendido' if contacto.modo == 'ia' }}" role="switch"
+                aria-checked="{{ 'true' if contacto.modo == 'ia' else 'false' }}" aria-label="IA en esta conversación">
+          <span class="interruptor-bola"></span>
+        </button>
+      </form>
+    </div>
+    <p class="nota-det">
+      {% if contacto.modo == 'ia' %}
+        {% if asistente_activo %}El asistente puede responder a este contacto.{% else %}Encendida, pero el asistente está inactivo en «Asistente → Configuración».{% endif %}
+      {% else %}
+        Atiende una persona: el asistente no responde a este contacto.
+      {% endif %}
+    </p>
+  </section>
+
+  {# --- Origen del anuncio --- #}
+  {% if contacto.origen_anuncio %}
+  {% set o = contacto.origen_anuncio %}
+  <section class="bloque-det">
+    <h3>Origen del anuncio</h3>
+    <div class="origen-anuncio">
+      {% if o.thumbnail_url or o.image_url %}<img src="{{ o.thumbnail_url or o.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}
+      <div>
+        <strong>{{ o.headline or 'Anuncio sin titular' }}</strong>
+        {% if o.body %}<p>{{ o.body | truncate(140) }}</p>{% endif %}
+        {% if o.source_url %}<a href="{{ o.source_url }}" target="_blank" rel="noopener noreferrer">Ver anuncio</a>{% endif %}
+        <p class="nota-det">{{ 'Anuncio' if o.source_type == 'ad' else 'Publicación' if o.source_type == 'post' else 'Origen' }}{% if o.source_id %} · ID {{ o.source_id }}{% endif %} · {{ contacto.origen_en | fecha_hora }}</p>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  {# --- Ficha --- #}
+  <section class="bloque-det">
+    <h3>Ficha</h3>
+    {% if campos %}
+    <form class="form-ficha" hx-post="/contactos/{{ contacto.id }}/ficha" hx-target="#detalles" hx-swap="outerHTML">
+      {% for c in campos %}
+      <div class="campo-ficha">
+        <label for="campo-{{ c.clave }}">{{ c.etiqueta }}{% if c.tipo == 'moneda' %} (S/){% endif %}
+          {% if c.fuente %}<span class="fuente fuente-{{ c.fuente }}" title="{{ 'Lo completó la IA' if c.fuente == 'ia' else 'Lo fijó una persona: la IA no lo cambia' }}">{{ 'IA' if c.fuente == 'ia' else 'Equipo' }}</span>{% endif %}
+        </label>
+        <div class="campo-control">
+          {% if c.tipo == 'opcion' %}
+          <select id="campo-{{ c.clave }}" name="{{ c.clave }}">
+            <option value="">—</option>
+            {% for op in c.opciones %}<option {{ 'selected' if c.valor == op }}>{{ op }}</option>{% endfor %}
+          </select>
+          {% else %}
+          <input id="campo-{{ c.clave }}" name="{{ c.clave }}" value="{{ c.valor or '' }}" autocomplete="off"
+                 {% if c.tipo in ('numero', 'documento') %}inputmode="numeric"{% elif c.tipo == 'moneda' %}inputmode="decimal"{% endif %}>
+          {% endif %}
+          {% if c.fuente == 'humano' %}
+          <button class="boton-icono" type="button" title="Devolver este campo a la IA" aria-label="Devolver {{ c.etiqueta }} a la IA"
+                  hx-post="/contactos/{{ contacto.id }}/campo/liberar" hx-vals='{"clave": "{{ c.clave }}"}'
+                  hx-target="#detalles" hx-swap="outerHTML">↺</button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      <button class="boton boton-sec boton-sm" type="submit">Guardar ficha</button>
+    </form>
+    {% else %}
+    <p class="nota-det">No hay campos configurados. Agrégalos en <a href="/ajustes?pestana=campos">Ajustes</a>.</p>
+    {% endif %}
+  </section>
+
+  {# --- Etiquetas --- #}
+  <section class="bloque-det">
+    <h3>Etiquetas</h3>
+    <div class="etiquetas">
+      {% for t in contacto.etiquetas %}
+      <span class="etiqueta-chip">{{ t }}
+        <button type="button" aria-label="Quitar etiqueta {{ t }}" hx-post="/contactos/{{ contacto.id }}/etiquetas/quitar"
+                hx-vals='{{ {"etiqueta": t} | tojson }}' hx-target="#detalles" hx-swap="outerHTML">×</button>
+      </span>
+      {% else %}
+      <span class="nota-det">Sin etiquetas.</span>
+      {% endfor %}
+    </div>
+    <form class="form-linea" hx-post="/contactos/{{ contacto.id }}/etiquetas" hx-target="#detalles" hx-swap="outerHTML">
+      <input name="etiqueta" maxlength="30" placeholder="Nueva etiqueta" list="etiquetas-existentes" aria-label="Nueva etiqueta" autocomplete="off">
+      <datalist id="etiquetas-existentes">{% for t in etiquetas_tenant %}<option value="{{ t }}">{% endfor %}</datalist>
+      <button class="boton boton-sec boton-sm" type="submit">Agregar</button>
+    </form>
+  </section>
+
+  {# --- Notas internas --- #}
+  <section class="bloque-det">
+    <h3>Notas internas</h3>
+    <form class="form-nota" hx-post="/contactos/{{ contacto.id }}/notas" hx-target="#detalles" hx-swap="outerHTML">
+      <textarea name="texto" rows="2" maxlength="2000" placeholder="Solo las ve tu equipo" aria-label="Nueva nota"></textarea>
+      <button class="boton boton-sec boton-sm" type="submit">Guardar nota</button>
+    </form>
+    {% for n in notas %}
+    <article class="nota">
+      <p>{{ n.texto }}</p>
+      <span class="nota-det">{{ n.autor }} · {{ n.creado_en | fecha_hora }}</span>
+    </article>
+    {% endfor %}
+  </section>
+</div>

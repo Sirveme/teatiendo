@@ -1,0 +1,34 @@
+<div id="lista-conversaciones" class="lista-conversaciones"
+     hx-get="/parcial/conversaciones" hx-include="#filtros-bandeja" hx-trigger="every 10s" hx-swap="outerHTML">
+  {% for c in contactos %}
+  {% set nombre = c.nombre_perfil or ('+' ~ c.wa_id) %}
+  <a href="/bandeja/{{ c.id }}{{ qs }}" class="contacto {{ 'activo' if activo_id == c.id }} {{ 'no-leido' if c.no_leidos }}">
+    <span class="avatar">{{ nombre.lstrip('+')[:1] | upper }}</span>
+    <span class="contacto-info">
+      <span class="contacto-fila">
+        <strong>{{ nombre }}</strong>
+        <time>{{ c.ultimo_en | hora_lista }}</time>
+      </span>
+      <span class="contacto-fila">
+        <span class="contacto-previa">{% if c.ultima_direccion == 'out' %}Tú: {% endif %}{{ c.ultimo_texto or 'Sin mensajes' }}</span>
+        {% if c.no_leidos %}<span class="contador-no-leidos" aria-label="{{ c.no_leidos }} sin leer">{{ c.no_leidos }}</span>{% endif %}
+      </span>
+      <span class="contacto-marcas">
+        {% if c.etapa_nombre %}<span class="chip-etapa" style="--color-etapa: {{ c.etapa_color }}">{{ c.etapa_nombre }}</span>{% endif %}
+        {% if c.modo == 'humano' and c.derivado_en %}<span class="insignia-atencion">Requiere atención</span>{% endif %}
+        {% if c.origen_anuncio %}<span class="chip-origen" title="Llegó por un anuncio">Anuncio</span>{% endif %}
+      </span>
+    </span>
+  </a>
+  {% else %}
+  <div class="vacio-lista">
+    {% if hay_filtros %}
+    <p><strong>Ninguna conversación coincide con los filtros.</strong></p>
+    <p>Prueba con otra búsqueda o vuelve a «Todas».</p>
+    {% else %}
+    <p><strong>Aún no hay conversaciones.</strong></p>
+    <p>Cuando un cliente escriba a tu número de WhatsApp aparecerá aquí. También puedes iniciar una con <a href="/nuevo">Nuevo mensaje</a>.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>

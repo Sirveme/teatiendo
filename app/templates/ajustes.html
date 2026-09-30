@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block titulo %}Ajustes{% endblock %}
+{% block contenido %}
+<div class="pagina">
+  <div class="pagina-cab">
+    <h1>Ajustes del CRM</h1>
+    <p>Elige el rubro de tu negocio y adapta el embudo y la ficha sin tocar código.</p>
+  </div>
+
+  <nav class="pestanas" aria-label="Secciones de ajustes">
+    {% for clave, etiqueta in [('rubro', 'Rubro'), ('embudo', 'Embudo'), ('campos', 'Campos de la ficha'), ('modulos', 'Módulos')] %}
+    <a href="/ajustes?pestana={{ clave }}" class="pestana {{ 'activa' if pestana == clave }}" {{ 'aria-current=page' if pestana == clave }}>{{ etiqueta }}</a>
+    {% endfor %}
+  </nav>
+
+  {% if error %}<div class="alerta alerta-error" role="alert">{{ error }}</div>{% endif %}
+
+  {% if pestana == 'rubro' %}
+  <form method="post" action="/ajustes/rubro" class="tarjeta formulario"
+        onsubmit="return confirm('Se agregarán las etapas y campos del rubro que falten. No se borra nada. ¿Continuar?')">
+    <h2>Rubro</h2>
+    <p class="ayuda-bloque">Cada rubro trae un embudo y una ficha de partida. Aplicar un rubro solo <strong>agrega</strong> lo que falta: nunca borra etapas, campos ni datos, y respeta los nombres que ya cambiaste.</p>
+    <div class="presets">
+      {% for clave, p in presets.items() %}
+      <label class="preset {{ 'actual' if tenant.rubro == clave }}">
+        <input type="radio" name="rubro" value="{{ clave }}" {{ 'checked' if tenant.rubro == clave }}>
+        <span class="preset-nombre">{{ p.nombre }}{% if tenant.rubro == clave %} <span class="chip-origen">Actual</span>{% endif %}</span>
+        <span class="preset-desc">{{ p.descripcion }}</span>
+        <span class="preset-etapas">{% for e in p.etapas %}<span class="chip-etapa" style="--color-etapa: {{ e.color }}">{{ e.nombre }}</span>{% endfor %}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <button class="boton" type="submit">Aplicar rubro</button>
+  </form>
+
+  {% elif pestana == 'embudo' %}
+  <form method="post" action="/ajustes/etapas" class="tarjeta formulario">
+    <h2>Etapas del embudo</h2>
+    <p class="ayuda-bloque">Renombra, cambia el color, el orden o oculta etapas. «La IA avanza» indica a qué etapas puede mover la IA un contacto (solo hacia adelante); lo define el rubro. «Perdido» siempre lo marca una persona.</p>
+    <div class="tabla-scroll">
+      <table class="tabla tabla-editable">
+        <thead><tr><th>Orden</th><th>Nombre</th><th>Color</th><th>La IA avanza</th><th>Oculta</th></tr></thead>
+        <tbody>
+          {% for e in etapas %}
+          <tr>
+            <td><input type="number" name="orden_{{ e.id }}" value="{{ e.orden }}" class="input-corto" aria-label="Orden de {{ e.nombre }}"></td>
+            <td><input name="nombre_{{ e.id }}" value="{{ e.nombre }}" maxlength="40" required aria-label="Nombre de la etapa"></td>
+            <td><input type="color" name="color_{{ e.id }}" value="{{ e.color }}" class="input-color" aria-label="Color de {{ e.nombre }}"></td>
+            <td>{% if e.es_perdido %}<span class="nota-det">Solo una persona</span>{% elif e.avanzable_por_ia %}<span class="texto-ok">Sí</span>{% else %}<span class="nota-det">No, solo tu equipo</span>{% endif %}</td>
+            <td>{% if e.es_perdido %}<span class="nota-det">Siempre visible</span>{% else %}<label class="opcion"><input type="checkbox" name="oculta_{{ e.id }}" value="1" {{ 'checked' if e.oculta }} aria-label="Ocultar {{ e.nombre }}"><span class="solo-movil">Oculta</span></label>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button class="boton" type="submit">Guardar embudo</button>
+  </form>
+
+  {% elif pestana == 'campos' %}
+  <form method="post" action="/ajustes/campos" class="tarjeta formulario">
+    <h2>Campos de la ficha</h2>
+    <p class="ayuda-bloque">La descripción le explica a la IA qué dato buscar en la conversación. La clave no cambia para no perder los datos ya guardados.</p>
+    <div class="campos-ajustes">
+      {% for c in campos %}
+      <fieldset class="campo-ajuste {{ 'inactivo' if not c.activo }}">
+        <legend><code>{{ c.clave }}</code> · {{ etiquetas_tipo[c.tipo] }}</legend>
+        <div class="fila-2">
+          <label>Etiqueta <input name="etiqueta_{{ c.id }}" value="{{ c.etiqueta }}" maxlength="60"></label>
+          {% if c.tipo == 'opcion' %}
+          <label>Opciones (separadas por comas) <input name="opciones_{{ c.id }}" value="{{ (c.opciones or []) | join(', ') }}"></label>
+          {% endif %}
+        </div>
+        <label>Descripción para la IA <input name="descripcion_{{ c.id }}" value="{{ c.descripcion_ia }}" maxlength="300"></label>
+        <label class="opcion"><input type="checkbox" name="activo_{{ c.id }}" value="1" {{ 'checked' if c.activo }}> Activo</label>
+      </fieldset>
+      {% endfor %}
+    </div>
+
+    <fieldset class="campo-ajuste campo-nuevo">
+      <legend>Agregar un campo</legend>
+      <div class="fila-2">
+        <label>Etiqueta <input name="nueva_etiqueta" maxlength="60" placeholder="Por ejemplo: Talla"></label>
+        <label>Tipo
+          <select name="nuevo_tipo">{% for t in tipos %}<option value="{{ t }}">{{ etiquetas_tipo[t] }}</option>{% endfor %}</select>
+        </label>
+      </div>
+      <label>Opciones (solo para «Opción de una lista», separadas por comas) <input name="nuevas_opciones" placeholder="S, M, L"></label>
+      <label>Descripción para la IA <input name="nueva_descripcion" maxlength="300" placeholder="Qué dato debe buscar la IA"></label>
+    </fieldset>
+    <button class="boton" type="submit">Guardar campos</button>
+  </form>
+
+  {% elif pestana == 'modulos' %}
+  <form method="post" action="/ajustes/modulos" class="tarjeta formulario">
+    <h2>Módulos</h2>
+    <p class="ayuda-bloque">Por ahora solo se guarda qué módulos usará tu negocio; se irán habilitando en próximas versiones.</p>
+    <div class="modulos">
+      {% for m, activo in modulos.items() %}
+      <label class="opcion modulo"><input type="checkbox" name="{{ m }}" value="1" {{ 'checked' if activo }}> {{ etiquetas_modulo[m] }}</label>
+      {% endfor %}
+    </div>
+    <button class="boton" type="submit">Guardar módulos</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

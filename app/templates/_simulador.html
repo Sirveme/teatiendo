@@ -37,6 +37,16 @@
     <div class="aviso-conv" role="status">{{ respuesta.motivo }}</div>
     {% endif %}
 
+    {% if extraccion_res and extraccion_res.estado == 'ok' and (extraccion_res.campos or extraccion_res.etapa) %}
+    {% set r = extraccion_res.resultado %}
+    <div class="aviso-conv aviso-ficha" role="status">
+      Ficha actualizada por la IA{% if extraccion_res.campos %}: {{ extraccion_res.campos | join(', ') }}{% endif %}{% if extraccion_res.etapa %} · etapa → <strong>{{ extraccion_res.etapa }}</strong>{% endif %}
+      <span class="sim-metricas-linea">{{ r.modelo }} · {{ r.uso.entrada + r.uso.cache_lectura + r.uso.cache_escritura }} entrada · {{ r.uso.salida }} salida · {{ ('US$ %.5f' | format(r.costo)) if r.costo is not none else 'sin precio' }}</span>
+    </div>
+    {% elif extraccion_res and extraccion_res.estado == 'error' %}
+    <div class="aviso-conv" role="status">La ficha no se actualizó en este mensaje ({{ extraccion_res.detalle }}). El cliente no ve este aviso.</div>
+    {% endif %}
+
     {% if sim_contacto.modo == 'humano' %}
     <div class="aviso-conv" role="status">
       La conversación quedó a cargo de una persona: el asistente ya no responde.
@@ -60,3 +70,34 @@
     </div>
   </form>
 </section>
+
+<aside id="ficha-simulador" class="tarjeta ficha-simulador" hx-swap-oob="true" aria-label="Ficha del contacto de prueba">
+  <div class="lista-cab">
+    <h2>Ficha en vivo</h2>
+    {% if sim_ficha.etapa_actual %}<span class="chip-etapa" style="--color-etapa: {{ sim_ficha.etapa_actual.color }}">{{ sim_ficha.etapa_actual.nombre }}</span>{% endif %}
+  </div>
+  {% if not nivel_basico.disponible %}
+  <p class="alerta alerta-info">La ficha automática usa el nivel Básico, que no está disponible: {{ nivel_basico.motivo }}.</p>
+  {% endif %}
+  <dl class="ficha-lista">
+    {% for c in sim_ficha.campos %}
+    <div class="ficha-fila {{ 'vacio' if not c.valor }}">
+      <dt>{{ c.etiqueta }}</dt>
+      <dd>{% if c.valor %}{% if c.tipo == 'moneda' %}S/ {% endif %}{{ c.valor }} <span class="fuente fuente-{{ c.fuente }}">{{ 'IA' if c.fuente == 'ia' else 'Equipo' }}</span>{% else %}—{% endif %}</dd>
+    </div>
+    {% else %}
+    <p class="nota-det">No hay campos configurados. Agrégalos en <a href="/ajustes?pestana=campos">Ajustes</a>.</p>
+    {% endfor %}
+  </dl>
+  <p class="ayuda-bloque">En el simulador la ficha se completa en cada mensaje. En WhatsApp se activa con «Completar ficha con IA» en Configuración y se hace como máximo una vez cada 2 minutos por contacto.</p>
+  <details class="consejos">
+    <summary>Cómo probarlo</summary>
+    <ul class="lista-simple">
+      <li>Escribe como cliente: «Quiero la polera negra talla M, ¿cuánto cuesta?». La ficha se llena sola.</li>
+      <li>Di «ya te yapeé»: la etapa <strong>no</strong> pasa a Pagado; eso lo marca tu equipo.</li>
+      <li>Pregunta algo que no esté en la base de conocimiento, o pide «hablar con una persona».</li>
+      <li>Prueba los botones de audio e imagen.</li>
+    </ul>
+    <p class="ayuda-bloque">Estas conversaciones de prueba no aparecen en la bandeja. Al proveedor de IA nunca se le envían teléfonos ni identificadores.</p>
+  </details>
+</aside>

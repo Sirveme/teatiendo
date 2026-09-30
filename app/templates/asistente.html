@@ -7,29 +7,43 @@
     <p>Responde a tus clientes solo con la información de tu negocio. Pruébalo aquí antes de activarlo.</p>
   </div>
 
-  <div class="resumen-ia">
-    <div class="dato">
-      <span class="dato-titulo">Estado</span>
-      <strong class="{{ 'texto-ok' if cfg.activo else 'texto-atenuado' }}">{{ 'Activo' if cfg.activo else 'Inactivo' }}</strong>
-      <span class="dato-nota">WhatsApp: {{ 'encendido' if config_ia.whatsapp_activo else 'apagado (IA_WHATSAPP_ACTIVO)' }}</span>
+  <section class="indicadores" aria-label="Resumen del asistente">
+    <div class="indicador">
+      <span class="indicador-icono {{ 'icono-ok' if cfg.activo }}" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+      </span>
+      <div class="indicador-texto">
+        <span class="indicador-titulo">Estado</span>
+        <strong class="indicador-valor {{ 'texto-ok' if cfg.activo else 'texto-atenuado' }}">{{ 'Activo' if cfg.activo else 'Inactivo' }}</strong>
+        <span class="indicador-nota">WhatsApp: {{ 'encendido' if config_ia.whatsapp_activo else 'apagado' }}</span>
+      </div>
     </div>
-    <div class="dato">
-      <span class="dato-titulo">Consultas a la IA · {{ nombre_mes }}</span>
-      <strong>{{ resumen.consultas }}</strong>
-      <span class="dato-nota">{{ resumen.errores }} con error · {{ '{:,}'.format(resumen.tokens) }} tokens</span>
+    <div class="indicador">
+      <span class="indicador-icono" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 5h16v10h-4l-2 3h-4l-2-3H4z"/></svg>
+      </span>
+      <div class="indicador-texto">
+        <span class="indicador-titulo">Consultas<span class="solo-escritorio"> · {{ nombre_mes }}</span></span>
+        <strong class="indicador-valor">{{ '{:,}'.format(resumen.consultas) }}</strong>
+        <span class="indicador-nota">{{ resumen.errores }} con error · {{ '{:,}'.format(resumen.tokens) }} tokens</span>
+      </div>
     </div>
-    <div class="dato">
-      <span class="dato-titulo">Costo estimado del mes</span>
-      <strong>US$ {{ '%.4f' | format(resumen.costo) }}</strong>
-      <span class="dato-nota">{% if resumen.sin_precio %}{{ resumen.sin_precio }} consulta(s) sin precio configurado{% else %}Según los precios configurados{% endif %}</span>
+    <div class="indicador">
+      <span class="indicador-icono" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 3v18M16.5 7.5c0-1.7-2-3-4.5-3s-4.5 1.3-4.5 3 2 2.6 4.5 3 4.5 1.3 4.5 3-2 3-4.5 3-4.5-1.3-4.5-3"/></svg>
+      </span>
+      <div class="indicador-texto">
+        <span class="indicador-titulo">Costo<span class="solo-escritorio"> estimado del mes</span></span>
+        <strong class="indicador-valor">US$ {{ '%.2f' | format(resumen.costo) if resumen.costo >= 1 else '%.4f' | format(resumen.costo) }}</strong>
+        <span class="indicador-nota">{% if resumen.sin_precio %}{{ resumen.sin_precio }} sin precio configurado{% else %}Según precios configurados{% endif %}</span>
+      </div>
     </div>
-  </div>
+  </section>
 
   <nav class="pestanas" aria-label="Secciones del asistente">
-    <a href="/asistente?pestana=probar" class="{{ 'activa' if pestana == 'probar' }}">Probar</a>
-    <a href="/asistente?pestana=conocimiento" class="{{ 'activa' if pestana == 'conocimiento' }}">Base de conocimiento</a>
-    <a href="/asistente?pestana=configuracion" class="{{ 'activa' if pestana == 'configuracion' }}">Configuración</a>
-    <a href="/asistente?pestana=uso" class="{{ 'activa' if pestana == 'uso' }}">Uso del mes</a>
+    {% for clave, etiqueta in [('probar', 'Probar'), ('conocimiento', 'Base de conocimiento'), ('configuracion', 'Configuración'), ('uso', 'Uso del mes')] %}
+    <a href="/asistente?pestana={{ clave }}" class="pestana {{ 'activa' if pestana == clave }}" {{ 'aria-current=page' if pestana == clave }}>{{ etiqueta }}</a>
+    {% endfor %}
   </nav>
 
   {% if error %}<div class="alerta alerta-error" role="alert">{{ error }}</div>{% endif %}
@@ -37,17 +51,6 @@
   {% if pestana == 'probar' %}
   <div class="grid-simulador">
     {% include "_simulador.html" %}
-    <aside class="tarjeta nota-simulador">
-      <h2>Cómo probarlo</h2>
-      <ul class="lista-simple">
-        <li>Escribe como si fueras un cliente. Usa el mismo motor que responderá por WhatsApp.</li>
-        <li>Pregunta algo que <strong>no</strong> esté en la base de conocimiento: debe decirlo con honestidad y ofrecer una persona.</li>
-        <li>Pide «hablar con una persona» para ver la derivación.</li>
-        <li>Prueba los botones de audio e imagen para ver cómo responde a mensajes que no son texto.</li>
-      </ul>
-      <p class="ayuda-bloque">La base de conocimiento ocupa unos <strong>{{ '{:,}'.format(tokens_base) }} tokens</strong> y se envía completa en cada consulta. Al proveedor de IA nunca se le envían teléfonos ni identificadores.</p>
-      <p class="ayuda-bloque">Estas conversaciones de prueba no aparecen en la bandeja.</p>
-    </aside>
   </div>
 
   {% elif pestana == 'conocimiento' %}
@@ -73,6 +76,12 @@
       <span>Asistente activo</span>
     </label>
     <p class="ayuda">En WhatsApp solo responderá si además la variable <code>IA_WHATSAPP_ACTIVO</code> está encendida (hoy: <strong>{{ 'encendida' if config_ia.whatsapp_activo else 'apagada' }}</strong>). El simulador funciona siempre.</p>
+
+    <label class="interruptor">
+      <input type="checkbox" name="extraccion_activa" value="1" {{ 'checked' if cfg.extraccion_activa }}>
+      <span>Completar ficha con IA</span>
+    </label>
+    <p class="ayuda">En WhatsApp, después de los mensajes del cliente, el nivel Básico ({{ 'disponible' if niveles.basico.disponible else 'no disponible: ' ~ niveles.basico.motivo }}) completa la ficha y avanza etapas tempranas. Máximo una vez cada {{ (config_ia.extraccion_intervalo_s / 60) | round(1) | replace('.0', '') }} min por contacto. Nunca cambia lo que editó tu equipo ni marca Pagado. En el simulador corre siempre.</p>
 
     <div class="fila-2">
       <label>Nombre del negocio
@@ -132,7 +141,7 @@
       <table class="tabla">
         <thead><tr><th>Origen</th><th>Consultas</th><th>Con error</th><th>Tokens entrada</th><th>Tokens salida</th><th>Tokens caché</th><th>Costo estimado</th></tr></thead>
         <tbody>
-          {% for origen, etiqueta in [('simulador', 'Simulador'), ('whatsapp', 'WhatsApp')] %}
+          {% for origen, etiqueta in [('simulador', 'Simulador'), ('whatsapp', 'WhatsApp'), ('extraccion', 'Ficha con IA')] %}
           {% set f = resumen.por_origen.get(origen) %}
           <tr>
             <td>{{ etiqueta }}</td>
@@ -157,7 +166,7 @@
           {% for u in ultimos %}
           <tr class="{{ 'fila-error' if not u.ok }}">
             <td>{{ u.creado_en | fecha_hora }}</td>
-            <td>{{ 'WhatsApp' if u.origen == 'whatsapp' else 'Simulador' }}</td>
+            <td>{{ {'whatsapp': 'WhatsApp', 'simulador': 'Simulador', 'extraccion': 'Ficha con IA'}[u.origen] }}</td>
             <td>{{ u.modelo or '—' }}{% if not u.ok %}<br><small>{{ u.error }}</small>{% endif %}</td>
             <td>{{ u.tokens_entrada }}</td>
             <td>{{ u.tokens_salida }}</td>

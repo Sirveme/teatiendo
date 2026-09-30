@@ -19,9 +19,9 @@
   <link rel="icon" href="/static/img/favicon.ico" sizes="32x32">
   <link rel="icon" href="/static/img/teatiendo-icono.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/estilo.css">
+  <link rel="stylesheet" href="/static/estilo.css?v={{ VERSION_ESTATICOS }}">
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
-  <script src="/static/app.js" defer></script>
+  <script src="/static/app.js?v={{ VERSION_ESTATICOS }}" defer></script>
 </head>
 <body>
 {% if usuario %}
@@ -35,6 +35,12 @@
       <a href="/bandeja" class="{{ 'activo' if seccion == 'bandeja' }}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10h-4l-2 3h-4l-2-3H4z"/></svg><span>Bandeja</span>
       </a>
+      <a href="/pipeline" class="{{ 'activo' if seccion == 'pipeline' }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v5h-4z"/></svg><span>Pipeline</span>
+      </a>
+      <a href="/contactos" class="{{ 'activo' if seccion == 'contactos' }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14c1.9.8 3 3 3 6"/></svg><span>Contactos</span>
+      </a>
       <a href="/nuevo" class="{{ 'activo' if seccion == 'nuevo' }}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-2-6z"/></svg><span>Nuevo mensaje</span>
       </a>
@@ -44,10 +50,17 @@
       <a href="/asistente" class="{{ 'activo' if seccion == 'asistente' }}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8zM18 15l.9 2.1 2.1.9-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z"/></svg><span>Asistente</span>
       </a>
+      <a href="/ajustes" class="{{ 'activo' if seccion == 'ajustes' }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6"/></svg><span>Ajustes</span>
+      </a>
     </nav>
     <div class="barra-pie">
       <span class="usuario" title="{{ usuario }}">{{ usuario }}</span>
-      <form method="post" action="/logout"><button class="enlace" type="submit">Cerrar sesión</button></form>
+      <form method="post" action="/logout">
+        <button class="enlace salir" type="submit" aria-label="Cerrar sesión">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h5v16h-5M10 16l-4-4 4-4M6 12h11"/></svg><span>Cerrar sesión</span>
+        </button>
+      </form>
     </div>
   </aside>
   <main class="contenido">
