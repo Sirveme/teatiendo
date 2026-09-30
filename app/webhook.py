@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import PlainTextResponse
 
-from app import db
+from app import asistente, db
 from app.config import CFG
 
 log = logging.getLogger("teatiendo.webhook")
@@ -117,6 +117,11 @@ async def _procesar_mensaje(pool, tenant_id: int, msg: dict, nombres: dict) -> N
     )
     if nuevo is None:
         log.info("Mensaje %s ya registrado; se ignora el duplicado", wamid)
+        return
+    try:
+        await asistente.al_recibir_whatsapp(pool, tenant_id, contacto_id, nuevo, tipo)
+    except Exception:
+        log.exception("El asistente falló al procesar el mensaje %s (el mensaje quedó guardado)", wamid)
 
 
 async def _procesar_status(pool, tenant_id: int, status: dict) -> None:

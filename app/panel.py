@@ -56,9 +56,14 @@ async def _plantillas_aprobadas(pool, tenant_id: int) -> list[dict]:
 
 async def _contacto_o_404(pool, tenant_id: int, contacto_id: int):
     contacto = await db.obtener_contacto(pool, tenant_id, contacto_id)
-    if not contacto:
+    if not contacto or contacto["canal"] != db.CANAL_WHATSAPP:  # el simulador (canal web) no es de la bandeja
         raise HTTPException(status_code=404, detail="Conversación no encontrada")
     return contacto
+
+
+async def _asistente_activo(pool, tenant_id: int) -> bool:
+    fila = await db.obtener_asistente(pool, tenant_id)
+    return bool(fila and fila["activo"])
 
 
 async def _ctx_conversacion(request: Request, contacto_id: int, aviso_conv: str | None = None) -> dict:
@@ -73,6 +78,7 @@ async def _ctx_conversacion(request: Request, contacto_id: int, aviso_conv: str 
         "mensajes": mensajes,
         "ventana": _ventana(contacto),
         "plantillas": await _plantillas_aprobadas(pool, tenant_id),
+        "asistente_activo": await _asistente_activo(pool, tenant_id),
         "aviso_conv": aviso_conv,
     }
 
@@ -106,6 +112,8 @@ async def _enviar_y_registrar_plantilla(pool, tenant_id: int, destino: str, plan
         texto=meta.renderizar(plantilla["cuerpo"], valores),
         estado="sent" if ok else "failed", error_json=None if ok else datos,
     )
+    if ok:
+        await db.tomar_control_humano(pool, tenant_id, contacto_id)
     return ok, datos, contacto_id
 
 
@@ -158,7 +166,18 @@ async def responder(request: Request, contacto_id: int, texto: str = Form("")):
             wamid=meta.wamid_de(datos) if ok else None, direccion="out", tipo="text", texto=texto,
             estado="sent" if ok else "failed", error_json=None if ok else datos,
         )
+        if ok:  # una persona respondió a mano: el asistente deja de responder a este contacto
+            await db.tomar_control_humano(pool, tenant_id, contacto_id)
     return _parcial(request, "_conversacion.html", **await _ctx_conversacion(request, contacto_id, aviso))
+
+
+@router.post("/bandeja/{contacto_id}/devolver-ia")
+async def devolver_al_asistente(request: Request, contacto_id: int):
+    pool, tenant_id = _pool_tenant(request)
+    await _contacto_o_404(pool, tenant_id, contacto_id)
+    await db.cambiar_modo(pool, tenant_id, contacto_id, "ia")
+    return _parcial(request, "_conversacion.html", **await _ctx_conversacion(
+        request, contacto_id, "El asistente vuelve a responder a este contacto."))
 
 
 @router.post("/bandeja/{contacto_id}/plantilla")
@@ -210,6 +229,7 @@ async def _ctx_lista(request: Request, sync_info: str | None = None, sync_error:
     return {
         "lista": lista,
         "hay_en_revision": any(p["estado_meta"] in ESTADOS_EN_REVISION for p in lista),
+        "recategorizadas": sum(1 for p in lista if p["categoria_original"] and p["categoria_original"] != p["categoria"]),
         "sync_info": sync_info,
         "sync_error": sync_error,
     }
@@ -243,7 +263,7 @@ async def crear_plantilla(request: Request):
         if ok:
             await db.upsert_plantilla(
                 pool, tenant_id, nombre=nombre, idioma=meta.IDIOMA, categoria=datos.get("category", categoria),
-                cuerpo=cuerpo, estado_meta=datos.get("status", "PENDING"),
+                categoria_original=categoria, cuerpo=cuerpo, estado_meta=datos.get("status", "PENDING"),
                 meta_template_id=datos.get("id"), motivo_rechazo=None,
             )
             _avisar(request, "ok", f"Plantilla «{nombre}» enviada a revisión de Meta. "
@@ -267,6 +287,7 @@ async def sincronizar_plantillas(request: Request):
 
     for t in datos:
         motivo = t.get("rejected_reason")
+        # La categoría actual se toma siempre de Meta; categoria_original se conserva para detectar recategorizaciones.
         await db.upsert_plantilla(
             pool, tenant_id, nombre=t.get("name", ""), idioma=t.get("language", meta.IDIOMA),
             categoria=t.get("category", ""), cuerpo=meta.cuerpo_de(t), estado_meta=t.get("status", "PENDING"),

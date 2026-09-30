@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import CFG  # valida las variables de entorno al importar
-from app import auth, db, meta, panel, webhook
+from app import auth, db, ia, meta, panel, rutas_asistente, webhook
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("teatiendo")
@@ -61,6 +61,9 @@ async def lifespan(app: FastAPI):
     log.info("Te Atiendo listo · tenant %s · número %s · Graph %s · cookie https_only=%s",
              tenant_id, CFG.wa_phone_number_id, CFG.graph_api_version,
              "siempre" if CFG.en_railway else "salvo localhost")
+    disponibles = [f"{n.clave}={n.proveedor}:{n.modelo}" for n in ia.CONFIG.niveles.values() if n.disponible]
+    log.info("IA · niveles disponibles: %s · WhatsApp IA: %s",
+             ", ".join(disponibles) or "ninguno", "encendido" if ia.CONFIG.whatsapp_activo else "apagado")
     yield
     await meta.cerrar()
     await pool.close()
@@ -73,6 +76,7 @@ app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")
 app.include_router(webhook.router)
 app.include_router(auth.router)
 app.include_router(panel.router)
+app.include_router(rutas_asistente.router)
 
 
 @app.exception_handler(auth.NoAutenticado)
