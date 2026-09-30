@@ -157,10 +157,39 @@
     });
   }
 
+  /* --- Base de conocimiento: contadores y "Cargar ejemplo: clínica" (rellena sin guardar) --- */
+  function iniciarConocimiento(form) {
+    if (form.dataset.listo) return;
+    form.dataset.listo = '1';
+    var areas = buscar(form, 'textarea[data-seccion]');
+    function contar(area) {
+      var etiqueta = area.closest('label').nextElementSibling;
+      var contador = etiqueta && etiqueta.querySelector('[data-contador-seccion]');
+      if (contador) contador.textContent = area.value.length + ' / ' + area.maxLength;
+    }
+    areas.forEach(function (area) { contar(area); area.addEventListener('input', function () { contar(area); }); });
+
+    var boton = form.querySelector('[data-cargar-ejemplo]');
+    if (!boton) return;
+    boton.addEventListener('click', function () {
+      var ejemplo;
+      try { ejemplo = JSON.parse(boton.getAttribute('data-ejemplo')); } catch (e) { return; }
+      var hayTexto = areas.some(function (a) { return a.value.trim(); });
+      if (hayTexto && !window.confirm('Esto reemplazará el texto de todas las secciones en el formulario (todavía no se guarda). ¿Continuar?')) return;
+      areas.forEach(function (area) {
+        if (ejemplo[area.name] != null) { area.value = ejemplo[area.name]; contar(area); }
+      });
+      areas[0].focus();
+    });
+  }
+
   function iniciar(raiz) {
     buscar(raiz, '[data-selector-plantilla]').forEach(iniciarSelector);
     buscar(raiz, '[data-form-plantilla]').forEach(iniciarCreacion);
     buscar(raiz, '[data-enviar-con-enter]').forEach(iniciarTextarea);
+    buscar(raiz, '[data-form-conocimiento]').forEach(iniciarConocimiento);
+    var sim = document.getElementById('sim-mensajes');
+    if (sim && raiz.contains && raiz.contains(sim)) sim.scrollTop = sim.scrollHeight;
   }
 
   /* --- Scroll de la conversación y refresco del compositor --- */
@@ -193,5 +222,20 @@
   });
 
   document.addEventListener('htmx:load', function (e) { iniciar(e.detail.elt); });
-  document.addEventListener('DOMContentLoaded', function () { iniciar(document); bajarMensajes(); });
+  document.addEventListener('DOMContentLoaded', function () {
+    iniciar(document);
+    bajarMensajes();
+    var sim = document.getElementById('sim-mensajes');
+    if (sim) sim.scrollTop = sim.scrollHeight;
+    var texto = document.querySelector('#simulador textarea');
+    if (texto) texto.focus();
+  });
+  document.addEventListener('htmx:afterSettle', function () {
+    var sim = document.getElementById('sim-mensajes');
+    if (sim) {
+      sim.scrollTop = sim.scrollHeight;
+      var texto = sim.parentNode.querySelector('textarea');
+      if (texto) texto.focus();
+    }
+  });
 })();
