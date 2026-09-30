@@ -35,13 +35,23 @@
     </span>
   </header>
 
+  <div id="modo-contacto">
+    {% if contacto.modo == 'humano' and (contacto.derivado_en or asistente_activo) %}
+    <div class="barra-modo {{ 'barra-atencion' if contacto.derivado_en }}">
+      <span>{% if contacto.derivado_en %}<strong>Requiere atención.</strong> El asistente pasó esta conversación a tu equipo ({{ contacto.derivado_en | fecha_hora }}).{% else %}Atendida por tu equipo: el asistente no responde a este contacto.{% endif %}</span>
+      <button class="boton boton-sec boton-sm" type="button" hx-post="/bandeja/{{ contacto.id }}/devolver-ia"
+              hx-target="#conversacion" hx-swap="outerHTML">Devolver al asistente</button>
+    </div>
+    {% endif %}
+  </div>
+
   <div id="mensajes" class="mensajes" data-ventana="{{ 'abierta' if ventana.abierta else 'cerrada' }}"
        hx-get="/parcial/conversacion/{{ contacto.id }}" hx-trigger="every 5s"
-       hx-select="#mensajes" hx-select-oob="#ventana" hx-swap="outerHTML">
+       hx-select="#mensajes" hx-select-oob="#ventana,#modo-contacto" hx-swap="outerHTML">
     {% for m in mensajes %}
       {% if loop.changed(m.creado_en | dia) %}<div class="separador">{{ m.creado_en | dia }}</div>{% endif %}
       <div class="burbuja {{ 'saliente' if m.direccion == 'out' else 'entrante' }} {{ 'fallida' if m.estado == 'failed' }}">
-        {% if m.tipo == 'template' %}<span class="etiqueta">Plantilla</span>{% endif %}
+        {% if m.tipo == 'template' %}<span class="etiqueta">Plantilla</span>{% elif m.generado_por_ia %}<span class="etiqueta">Asistente</span>{% endif %}
         <p>{{ m.texto or '[Mensaje sin texto]' }}</p>
         <span class="meta-burbuja">
           <time>{{ m.creado_en | hora }}</time>

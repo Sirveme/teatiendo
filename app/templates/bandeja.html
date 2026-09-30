@@ -18,6 +18,7 @@
           <time>{{ c.ultimo_en | hora_lista }}</time>
         </span>
         <span class="contacto-previa">{% if c.ultima_direccion == 'out' %}Tú: {% endif %}{{ c.ultimo_texto or 'Sin mensajes' }}</span>
+        {% if c.modo == 'humano' and c.derivado_en %}<span class="insignia-atencion">Requiere atención</span>{% endif %}
       </span>
     </a>
     {% else %}

@@ -16,7 +16,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#2A0505">
   <title>{% block titulo %}Panel{% endblock %} · Te Atiendo</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3C8.8 3 3 8.3 3 14.8c0 3.3 1.5 6.3 4 8.4L6 29l6-3c1.3.4 2.6.6 4 .6 7.2 0 13-5.3 13-11.8S23.2 3 16 3z' fill='%23D4A017'/%3E%3Cpath d='M10.5 15.2l3.6 3.4 7.4-7.2' fill='none' stroke='%232A0505' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" href="/static/img/favicon.ico" sizes="32x32">
+  <link rel="icon" href="/static/img/teatiendo-icono.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/estilo.css">
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
   <script src="/static/app.js" defer></script>
@@ -26,7 +28,7 @@
 <div class="app">
   <aside class="barra">
     <a class="marca" href="/bandeja">
-      <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><path d="M16 3C8.8 3 3 8.3 3 14.8c0 3.3 1.5 6.3 4 8.4L6 29l6-3c1.3.4 2.6.6 4 .6 7.2 0 13-5.3 13-11.8S23.2 3 16 3z" fill="#D4A017"/><path d="M10.5 15.2l3.6 3.4 7.4-7.2" fill="none" stroke="#2A0505" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <img class="marca-simbolo" src="/static/img/teatiendo-simbolo.svg" alt="" width="34" height="32">
       <span>Te Atiendo<small>Atención y Ventas</small></span>
     </a>
     <nav class="nav" aria-label="Secciones">
@@ -38,6 +40,9 @@
       </a>
       <a href="/plantillas" class="{{ 'activo' if seccion == 'plantillas' }}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM9 11h7M9 15h7M9 7h3"/></svg><span>Plantillas</span>
+      </a>
+      <a href="/asistente" class="{{ 'activo' if seccion == 'asistente' }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8zM18 15l.9 2.1 2.1.9-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z"/></svg><span>Asistente</span>
       </a>
     </nav>
     <div class="barra-pie">

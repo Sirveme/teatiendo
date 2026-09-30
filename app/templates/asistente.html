@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block titulo %}Asistente{% endblock %}
+{% block contenido %}
+<div class="pagina">
+  <div class="pagina-cab">
+    <h1>Asistente con IA</h1>
+    <p>Responde a tus clientes solo con la información de tu negocio. Pruébalo aquí antes de activarlo.</p>
+  </div>
+
+  <div class="resumen-ia">
+    <div class="dato">
+      <span class="dato-titulo">Estado</span>
+      <strong class="{{ 'texto-ok' if cfg.activo else 'texto-atenuado' }}">{{ 'Activo' if cfg.activo else 'Inactivo' }}</strong>
+      <span class="dato-nota">WhatsApp: {{ 'encendido' if config_ia.whatsapp_activo else 'apagado (IA_WHATSAPP_ACTIVO)' }}</span>
+    </div>
+    <div class="dato">
+      <span class="dato-titulo">Consultas a la IA · {{ nombre_mes }}</span>
+      <strong>{{ resumen.consultas }}</strong>
+      <span class="dato-nota">{{ resumen.errores }} con error · {{ '{:,}'.format(resumen.tokens) }} tokens</span>
+    </div>
+    <div class="dato">
+      <span class="dato-titulo">Costo estimado del mes</span>
+      <strong>US$ {{ '%.4f' | format(resumen.costo) }}</strong>
+      <span class="dato-nota">{% if resumen.sin_precio %}{{ resumen.sin_precio }} consulta(s) sin precio configurado{% else %}Según los precios configurados{% endif %}</span>
+    </div>
+  </div>
+
+  <nav class="pestanas" aria-label="Secciones del asistente">
+    <a href="/asistente?pestana=probar" class="{{ 'activa' if pestana == 'probar' }}">Probar</a>
+    <a href="/asistente?pestana=conocimiento" class="{{ 'activa' if pestana == 'conocimiento' }}">Base de conocimiento</a>
+    <a href="/asistente?pestana=configuracion" class="{{ 'activa' if pestana == 'configuracion' }}">Configuración</a>
+    <a href="/asistente?pestana=uso" class="{{ 'activa' if pestana == 'uso' }}">Uso del mes</a>
+  </nav>
+
+  {% if error %}<div class="alerta alerta-error" role="alert">{{ error }}</div>{% endif %}
+
+  {% if pestana == 'probar' %}
+  <div class="grid-simulador">
+    {% include "_simulador.html" %}
+    <aside class="tarjeta nota-simulador">
+      <h2>Cómo probarlo</h2>
+      <ul class="lista-simple">
+        <li>Escribe como si fueras un cliente. Usa el mismo motor que responderá por WhatsApp.</li>
+        <li>Pregunta algo que <strong>no</strong> esté en la base de conocimiento: debe decirlo con honestidad y ofrecer una persona.</li>
+        <li>Pide «hablar con una persona» para ver la derivación.</li>
+        <li>Prueba los botones de audio e imagen para ver cómo responde a mensajes que no son texto.</li>
+      </ul>
+      <p class="ayuda-bloque">La base de conocimiento ocupa unos <strong>{{ '{:,}'.format(tokens_base) }} tokens</strong> y se envía completa en cada consulta. Al proveedor de IA nunca se le envían teléfonos ni identificadores.</p>
+      <p class="ayuda-bloque">Estas conversaciones de prueba no aparecen en la bandeja.</p>
+    </aside>
+  </div>
+
+  {% elif pestana == 'conocimiento' %}
+  <form method="post" action="/asistente/conocimiento" class="tarjeta formulario" data-form-conocimiento>
+    <div class="lista-cab">
+      <h2>Base de conocimiento</h2>
+      <button type="button" class="boton boton-sec boton-sm" data-cargar-ejemplo data-ejemplo='{{ ejemplo | tojson }}'>Cargar ejemplo: clínica</button>
+    </div>
+    <p class="ayuda-bloque">El asistente responde <strong>solo</strong> con lo que escribas aquí. Todo se envía completo en cada consulta (hoy unos {{ '{:,}'.format(tokens_base) }} tokens con las reglas), así que conviene que sea claro y concreto. El ejemplo rellena el formulario sin guardar.</p>
+    {% for clave, titulo in secciones %}
+    <label>{{ titulo }}
+      <textarea name="{{ clave }}" rows="{{ 6 if clave != 'servicios_precios' else 8 }}" maxlength="{{ max_seccion }}" data-seccion>{{ cfg[clave] }}</textarea>
+    </label>
+    <p class="ayuda">{{ ayudas[clave] }} <span class="contador" data-contador-seccion></span></p>
+    {% endfor %}
+    <button class="boton" type="submit">Guardar base de conocimiento</button>
+  </form>
+
+  {% elif pestana == 'configuracion' %}
+  <form method="post" action="/asistente/configuracion" class="tarjeta formulario">
+    <label class="interruptor">
+      <input type="checkbox" name="activo" value="1" {{ 'checked' if cfg.activo }}>
+      <span>Asistente activo</span>
+    </label>
+    <p class="ayuda">En WhatsApp solo responderá si además la variable <code>IA_WHATSAPP_ACTIVO</code> está encendida (hoy: <strong>{{ 'encendida' if config_ia.whatsapp_activo else 'apagada' }}</strong>). El simulador funciona siempre.</p>
+
+    <div class="fila-2">
+      <label>Nombre del negocio
+        <input name="nombre_negocio" value="{{ cfg.nombre_negocio }}" maxlength="120" placeholder="Clínica San José">
+      </label>
+      <label>Nombre del asistente
+        <input name="nombre_asistente" value="{{ cfg.nombre_asistente }}" maxlength="60" placeholder="Asistente">
+      </label>
+    </div>
+
+    <fieldset class="grupo">
+      <legend>Trato al cliente</legend>
+      <label class="opcion"><input type="radio" name="trato" value="tu" {{ 'checked' if cfg.trato == 'tu' }}> De tú</label>
+      <label class="opcion"><input type="radio" name="trato" value="usted" {{ 'checked' if cfg.trato == 'usted' }}> De usted</label>
+    </fieldset>
+
+    <fieldset class="grupo">
+      <legend>Nivel de IA</legend>
+      <div class="niveles">
+        {% for clave, n in niveles.items() %}
+        <label class="nivel {{ 'no-disponible' if not n.disponible }}">
+          <input type="radio" name="nivel" value="{{ clave }}" {{ 'checked' if cfg.nivel == clave }} {{ 'disabled' if not n.disponible }}>
+          <span class="nivel-nombre">{{ n.etiqueta }}</span>
+          {% if n.disponible %}
+          <span class="nivel-detalle">{{ n.proveedor }} · {{ n.modelo }}</span>
+          <span class="nivel-detalle">{% if n.precio %}US$ {{ n.precio.entrada }} entrada / {{ n.precio.salida }} salida por millón{% else %}Sin precio configurado{% endif %}</span>
+          {% else %}
+          <span class="nivel-detalle">No disponible: {{ n.motivo }}</span>
+          {% endif %}
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <label>Horario de atención humana
+      <input name="horario_humano" value="{{ cfg.horario_humano }}" maxlength="200" placeholder="de lunes a viernes, de 9:00 a 18:00">
+    </label>
+    <p class="ayuda">Cuándo responde una persona de tu equipo. Se puede usar dentro del mensaje de derivación.</p>
+
+    <label>Mensaje de derivación a una persona
+      <textarea name="mensaje_derivacion" rows="3" maxlength="600">{{ cfg.mensaje_derivacion }}</textarea>
+    </label>
+    <p class="ayuda">Escribe <code>{horario_humano}</code> donde quieras mostrar el horario. Así lo verá el cliente hoy: «{{ vista_derivacion }}»</p>
+
+    <label>Respuesta al primer audio (o mensaje que no es texto)
+      <textarea name="mensaje_no_texto" rows="3" maxlength="600">{{ cfg.mensaje_no_texto }}</textarea>
+    </label>
+    <p class="ayuda">Si vuelve a llegar un mensaje que no es texto, la conversación pasa a una persona. Las imágenes y los documentos pasan siempre a una persona.</p>
+
+    <button class="boton" type="submit">Guardar configuración</button>
+  </form>
+
+  {% elif pestana == 'uso' %}
+  <section class="tarjeta">
+    <h2>Uso de este mes</h2>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Origen</th><th>Consultas</th><th>Con error</th><th>Tokens entrada</th><th>Tokens salida</th><th>Tokens caché</th><th>Costo estimado</th></tr></thead>
+        <tbody>
+          {% for origen, etiqueta in [('simulador', 'Simulador'), ('whatsapp', 'WhatsApp')] %}
+          {% set f = resumen.por_origen.get(origen) %}
+          <tr>
+            <td>{{ etiqueta }}</td>
+            <td>{{ f.consultas if f else 0 }}</td>
+            <td>{{ f.errores if f else 0 }}</td>
+            <td>{{ '{:,}'.format(f.entrada) if f else 0 }}</td>
+            <td>{{ '{:,}'.format(f.salida) if f else 0 }}</td>
+            <td>{{ '{:,}'.format(f.cache) if f else 0 }}</td>
+            <td>US$ {{ '%.4f' | format(f.costo if f else 0) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="ayuda-bloque">El costo es una estimación con los precios de las variables <code>IA_PRECIO_*</code>; la factura real la emite cada proveedor.</p>
+
+    <h2 class="subtitulo">Últimas consultas</h2>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Fecha</th><th>Origen</th><th>Modelo</th><th>Entrada</th><th>Salida</th><th>Caché</th><th>Costo</th><th>Tiempo</th></tr></thead>
+        <tbody>
+          {% for u in ultimos %}
+          <tr class="{{ 'fila-error' if not u.ok }}">
+            <td>{{ u.creado_en | fecha_hora }}</td>
+            <td>{{ 'WhatsApp' if u.origen == 'whatsapp' else 'Simulador' }}</td>
+            <td>{{ u.modelo or '—' }}{% if not u.ok %}<br><small>{{ u.error }}</small>{% endif %}</td>
+            <td>{{ u.tokens_entrada }}</td>
+            <td>{{ u.tokens_salida }}</td>
+            <td>{{ u.cache }}</td>
+            <td>{{ ('US$ %.4f' | format(u.costo_estimado)) if u.costo_estimado is not none else '—' }}</td>
+            <td>{{ '%.1f' | format(u.duracion_ms / 1000) }} s</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="vacio-tabla">Todavía no hay consultas. Prueba el asistente en la pestaña «Probar».</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

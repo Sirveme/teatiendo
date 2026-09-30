@@ -1,0 +1,62 @@
+<section id="simulador" class="tarjeta simulador">
+  <div class="sim-cab">
+    <div>
+      <strong>Simulador</strong>
+      <span class="sim-modelo">{{ nivel_actual.etiqueta }}{% if nivel_actual.disponible %} · {{ nivel_actual.modelo }}{% endif %}</span>
+    </div>
+    <button class="boton boton-sec boton-sm" type="button" hx-post="/asistente/probar/reiniciar"
+            hx-target="#simulador" hx-swap="outerHTML" hx-disabled-elt="this">Reiniciar conversación</button>
+  </div>
+
+  {% if not nivel_actual.disponible %}
+  <div class="alerta alerta-error">El nivel {{ nivel_actual.etiqueta }} no está disponible: {{ nivel_actual.motivo }}. Configura las variables de IA en Railway o elige otro nivel en «Configuración».</div>
+  {% endif %}
+
+  <div id="sim-mensajes" class="sim-mensajes">
+    {% for m in sim_mensajes %}
+    <div class="burbuja {{ 'sim-cliente' if m.direccion == 'in' else 'sim-asistente' }}">
+      {% if m.direccion == 'out' %}<span class="etiqueta">{{ cfg.nombre_asistente }}</span>{% endif %}
+      <p>{{ m.texto }}</p>
+      {% set u = usos.get(m.id) %}
+      {% if u %}
+      <div class="sim-metricas">
+        {{ u.modelo }} · {{ u.tokens_entrada }} entrada{% if u.tokens_cache_lectura or u.tokens_cache_escritura %} + {{ u.tokens_cache_lectura + u.tokens_cache_escritura }} caché{% endif %} · {{ u.tokens_salida }} salida ·
+        {{ ('US$ %.5f' | format(u.costo_estimado)) if u.costo_estimado is not none else 'sin precio' }} · {{ '%.1f' | format(u.duracion_ms / 1000) }} s
+      </div>
+      {% elif m.direccion == 'out' %}
+      <div class="sim-metricas">Mensaje automático, sin llamada a la IA</div>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="sim-vacio">Escribe como si fueras un cliente. Por ejemplo: «¿Atienden hoy?» o «¿Cuánto cuesta la consulta?».</p>
+    {% endfor %}
+
+    {% if respuesta and respuesta.accion == 'error' %}
+    <div class="aviso-conv aviso-error" role="alert">No se pudo generar la respuesta: {{ respuesta.motivo }}</div>
+    {% elif respuesta and respuesta.accion in ('derivar', 'aviso_no_texto') %}
+    <div class="aviso-conv" role="status">{{ respuesta.motivo }}</div>
+    {% endif %}
+
+    {% if sim_contacto.modo == 'humano' %}
+    <div class="aviso-conv" role="status">
+      La conversación quedó a cargo de una persona: el asistente ya no responde.
+      <button class="enlace" type="button" hx-post="/asistente/probar/devolver" hx-target="#simulador" hx-swap="outerHTML">Devolver al asistente</button>
+    </div>
+    {% endif %}
+  </div>
+
+  <form class="sim-form" hx-post="/asistente/probar" hx-target="#simulador" hx-swap="outerHTML" hx-disabled-elt="find button">
+    {% if error_form %}<p class="advertencia">{{ error_form }}</p>{% endif %}
+    <div class="responder">
+      <textarea name="texto" rows="1" maxlength="1000" placeholder="Escribe como cliente…"
+                aria-label="Mensaje de prueba" data-enviar-con-enter></textarea>
+      <button class="boton" type="submit" name="tipo" value="text">Enviar</button>
+    </div>
+    <div class="sim-extra">
+      <span>Simular:</span>
+      <button class="boton boton-sec boton-sm" type="submit" name="tipo" value="audio">Audio</button>
+      <button class="boton boton-sec boton-sm" type="submit" name="tipo" value="image">Imagen</button>
+      <span class="sim-escribiendo htmx-indicator">El asistente está escribiendo…</span>
+    </div>
+  </form>
+</section>
