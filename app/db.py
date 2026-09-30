@@ -25,8 +25,8 @@ async def asegurar_tenant(pool, waba_id: str, phone_number_id: str) -> int:
     """Crea el tenant inicial si no existe (las variables de entorno mandan sobre el waba_id)."""
     return await pool.fetchval(
         """
-        INSERT INTO tenants (nombre, waba_id, phone_number_id)
-        VALUES ('PERU SISTEMAS PRO E.I.R.L.', $1, $2)
+        INSERT INTO tenants (nombre, waba_id, phone_number_id, rubro)
+        VALUES ('PERU SISTEMAS PRO E.I.R.L.', $1, $2, 'comercio_redes')
         ON CONFLICT (phone_number_id) DO UPDATE SET waba_id = EXCLUDED.waba_id
         RETURNING id
         """,
@@ -35,7 +35,8 @@ async def asegurar_tenant(pool, waba_id: str, phone_number_id: str) -> int:
 
 
 async def obtener_tenant(pool, tenant_id: int):
-    return await pool.fetchrow("SELECT id, nombre, waba_id, phone_number_id FROM tenants WHERE id = $1", tenant_id)
+    return await pool.fetchrow("SELECT id, nombre, waba_id, phone_number_id, rubro, modulos FROM tenants WHERE id = $1",
+                               tenant_id)
 
 
 async def tenant_por_phone(pool, phone_number_id: str | None) -> int | None:
@@ -53,18 +54,19 @@ async def guardar_evento(pool, payload: dict) -> None:
 # --- Contactos ---------------------------------------------------------------
 
 async def upsert_contacto_entrante(pool, tenant_id: int, wa_id: str, nombre: str | None, recibido_en: datetime,
-                                   canal: str = CANAL_WHATSAPP) -> int:
+                                   canal: str = CANAL_WHATSAPP, meta_user_id: str | None = None) -> int:
     return await pool.fetchval(
         """
-        INSERT INTO contacts (tenant_id, canal, wa_id, nombre_perfil, ultimo_mensaje_entrante_en)
-        VALUES ($1, $5, $2, $3, $4)
+        INSERT INTO contacts (tenant_id, canal, wa_id, nombre_perfil, ultimo_mensaje_entrante_en, meta_user_id)
+        VALUES ($1, $5, $2, $3, $4, $6)
         ON CONFLICT (tenant_id, canal, wa_id) DO UPDATE SET
             nombre_perfil = COALESCE(EXCLUDED.nombre_perfil, contacts.nombre_perfil),
             ultimo_mensaje_entrante_en = GREATEST(contacts.ultimo_mensaje_entrante_en,
-                                                  EXCLUDED.ultimo_mensaje_entrante_en)
+                                                  EXCLUDED.ultimo_mensaje_entrante_en),
+            meta_user_id = COALESCE(EXCLUDED.meta_user_id, contacts.meta_user_id)
         RETURNING id
         """,
-        tenant_id, wa_id, nombre, recibido_en, canal,
+        tenant_id, wa_id, nombre, recibido_en, canal, meta_user_id,
     )
 
 
@@ -79,28 +81,52 @@ async def upsert_contacto(pool, tenant_id: int, wa_id: str, canal: str = CANAL_W
     )
 
 
-async def listar_contactos(pool, tenant_id: int):
+async def listar_contactos(pool, tenant_id: int, *, q: str | None = None, filtro: str | None = None,
+                           etapa_id: int | None = None, etiqueta: str | None = None, limite: int = 200):
+    """Contactos de WhatsApp con su etapa efectiva (sin etapa = primera etapa visible), último mensaje y no leídos.
+    filtro: None | 'no_leidas' | 'atencion'. q busca en nombre, teléfono y valores de la ficha."""
     return await pool.fetch(
         """
         SELECT c.id, c.wa_id, c.nombre_perfil, c.ultimo_mensaje_entrante_en, c.modo, c.derivado_en,
-               m.texto AS ultimo_texto, m.direccion AS ultima_direccion, m.creado_en AS ultimo_en
+               c.ficha, c.etiquetas, c.etapa_desde, c.origen_anuncio, c.motivo_perdida,
+               COALESCE(e.id, ep.id) AS etapa_id, COALESCE(e.nombre, ep.nombre) AS etapa_nombre,
+               COALESCE(e.color, ep.color) AS etapa_color, COALESCE(e.es_perdido, false) AS etapa_perdida,
+               m.texto AS ultimo_texto, m.direccion AS ultima_direccion, m.creado_en AS ultimo_en,
+               (SELECT count(*) FROM messages mi
+                WHERE mi.contact_id = c.id AND mi.direccion = 'in' AND mi.id > c.leido_hasta_id) AS no_leidos
         FROM contacts c
+        LEFT JOIN etapas e ON e.id = c.etapa_id
         LEFT JOIN LATERAL (
-            SELECT texto, direccion, creado_en FROM messages
+            SELECT id, nombre, color FROM etapas
+            WHERE tenant_id = c.tenant_id AND NOT es_perdido AND NOT oculta ORDER BY orden LIMIT 1
+        ) ep ON c.etapa_id IS NULL
+        LEFT JOIN LATERAL (
+            SELECT id, texto, direccion, creado_en FROM messages
             WHERE contact_id = c.id ORDER BY id DESC LIMIT 1
         ) m ON TRUE
         WHERE c.tenant_id = $1 AND c.canal = 'whatsapp'
-        ORDER BY m.creado_en DESC NULLS LAST, c.id DESC
-        LIMIT 200
+          AND ($2::text IS NULL
+               OR strpos(lower(COALESCE(c.nombre_perfil, '')), lower($2)) > 0
+               OR strpos(c.wa_id, $2) > 0
+               OR EXISTS (SELECT 1 FROM jsonb_each(c.ficha) f WHERE strpos(lower(f.value ->> 'valor'), lower($2)) > 0))
+          AND ($3::bigint IS NULL OR COALESCE(e.id, ep.id) = $3)
+          AND ($4::text IS NULL OR $4 = ANY (c.etiquetas))
+          AND ($5::text IS DISTINCT FROM 'no_leidas' OR EXISTS (
+                SELECT 1 FROM messages mi WHERE mi.contact_id = c.id AND mi.direccion = 'in' AND mi.id > c.leido_hasta_id))
+          AND ($5::text IS DISTINCT FROM 'atencion' OR (c.modo = 'humano' AND c.derivado_en IS NOT NULL))
+        ORDER BY m.id DESC NULLS LAST, c.id DESC
+        LIMIT $6
         """,
-        tenant_id,
+        tenant_id, q or None, etapa_id, etiqueta or None, filtro or None, limite,
     )
 
 
 async def obtener_contacto(pool, tenant_id: int, contacto_id: int):
     return await pool.fetchrow(
         """
-        SELECT id, canal, wa_id, nombre_perfil, ultimo_mensaje_entrante_en, modo, derivado_en, aviso_no_texto_en
+        SELECT id, canal, wa_id, nombre_perfil, ultimo_mensaje_entrante_en, modo, derivado_en, aviso_no_texto_en,
+               etapa_id, etapa_desde, motivo_perdida, ficha, etiquetas, origen_anuncio, origen_en, meta_user_id,
+               leido_hasta_id, extraccion_en
         FROM contacts WHERE id = $1 AND tenant_id = $2
         """,
         contacto_id, tenant_id,
@@ -278,7 +304,7 @@ async def upsert_plantilla(pool, tenant_id: int, *, nombre: str, idioma: str, ca
 # --- Asistente ---------------------------------------------------------------
 
 CAMPOS_CONFIG_ASISTENTE = ("activo", "nombre_negocio", "nombre_asistente", "trato", "nivel", "horario_humano",
-                           "mensaje_derivacion", "mensaje_no_texto")
+                           "mensaje_derivacion", "mensaje_no_texto", "extraccion_activa")
 CAMPOS_CONOCIMIENTO = ("sobre_negocio", "servicios_precios", "horarios_contacto", "preguntas_frecuentes", "reglas")
 
 
@@ -367,3 +393,289 @@ async def ultimos_usos(pool, tenant_id: int, limite: int = 15):
         """,
         tenant_id, limite,
     )
+
+
+# --- CRM: embudo y campos de la ficha ------------------------------------------
+
+async def listar_etapas(pool, tenant_id: int, incluir_ocultas: bool = False):
+    return await pool.fetch(
+        """
+        SELECT id, clave, nombre, color, orden, descripcion_ia, avanzable_por_ia, es_perdido, oculta
+        FROM etapas WHERE tenant_id = $1 AND ($2 OR NOT oculta) ORDER BY orden, id
+        """,
+        tenant_id, incluir_ocultas,
+    )
+
+
+async def listar_campos(pool, tenant_id: int, solo_activos: bool = True):
+    return await pool.fetch(
+        """
+        SELECT id, clave, etiqueta, tipo, opciones, descripcion_ia, orden, activo
+        FROM campos_ficha WHERE tenant_id = $1 AND ($2 = false OR activo) ORDER BY orden, id
+        """,
+        tenant_id, solo_activos,
+    )
+
+
+async def insertar_etapas_faltantes(pool, tenant_id: int, etapas: list[dict]) -> int:
+    """Agrega las etapas del preset que el tenant aún no tiene (por clave). Nunca modifica ni borra las existentes."""
+    insertadas = 0
+    async with pool.acquire() as con:
+        async with con.transaction():
+            base = await con.fetchval("SELECT COALESCE(max(orden), 0) FROM etapas WHERE tenant_id = $1", tenant_id)
+            for i, e in enumerate(etapas, start=1):
+                estado = await con.execute(
+                    """
+                    INSERT INTO etapas (tenant_id, clave, nombre, color, orden, descripcion_ia, avanzable_por_ia, es_perdido)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (tenant_id, clave) DO NOTHING
+                    """,
+                    tenant_id, e["clave"], e["nombre"], e["color"], base + i * 10, e.get("descripcion_ia", ""),
+                    bool(e.get("avanzable_por_ia")), bool(e.get("es_perdido")),
+                )
+                insertadas += estado.endswith(" 1")
+    return insertadas
+
+
+async def insertar_campos_faltantes(pool, tenant_id: int, campos: list[dict]) -> int:
+    insertados = 0
+    async with pool.acquire() as con:
+        async with con.transaction():
+            base = await con.fetchval("SELECT COALESCE(max(orden), 0) FROM campos_ficha WHERE tenant_id = $1", tenant_id)
+            for i, c in enumerate(campos, start=1):
+                estado = await con.execute(
+                    """
+                    INSERT INTO campos_ficha (tenant_id, clave, etiqueta, tipo, opciones, descripcion_ia, orden)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (tenant_id, clave) DO NOTHING
+                    """,
+                    tenant_id, c["clave"], c["etiqueta"], c["tipo"], c.get("opciones", []), c.get("descripcion_ia", ""),
+                    base + i * 10,
+                )
+                insertados += estado.endswith(" 1")
+    return insertados
+
+
+async def actualizar_rubro(pool, tenant_id: int, rubro: str, modulos: dict) -> None:
+    await pool.execute("UPDATE tenants SET rubro = $2, modulos = $3 WHERE id = $1", tenant_id, rubro, modulos)
+
+
+async def actualizar_modulos(pool, tenant_id: int, modulos: dict) -> None:
+    await pool.execute("UPDATE tenants SET modulos = $2 WHERE id = $1", tenant_id, modulos)
+
+
+async def actualizar_etapa(pool, tenant_id: int, etapa_id: int, *, nombre: str, color: str, orden: int, oculta: bool) -> None:
+    await pool.execute(
+        "UPDATE etapas SET nombre = $3, color = $4, orden = $5, oculta = $6 WHERE id = $2 AND tenant_id = $1",
+        tenant_id, etapa_id, nombre, color, orden, oculta,
+    )
+
+
+async def actualizar_campo(pool, tenant_id: int, campo_id: int, *, etiqueta: str, descripcion_ia: str,
+                           opciones: list, activo: bool) -> None:
+    await pool.execute(
+        """
+        UPDATE campos_ficha SET etiqueta = $3, descripcion_ia = $4, opciones = $5, activo = $6
+        WHERE id = $2 AND tenant_id = $1
+        """,
+        tenant_id, campo_id, etiqueta, descripcion_ia, opciones, activo,
+    )
+
+
+async def agregar_campo(pool, tenant_id: int, *, clave: str, etiqueta: str, tipo: str, opciones: list,
+                        descripcion_ia: str) -> bool:
+    return bool(await insertar_campos_faltantes(pool, tenant_id, [{
+        "clave": clave, "etiqueta": etiqueta, "tipo": tipo, "opciones": opciones, "descripcion_ia": descripcion_ia}]))
+
+
+# --- CRM: ficha, etapa, etiquetas y notas del contacto ---------------------------
+
+async def aplicar_ficha_ia(pool, tenant_id: int, contacto_id: int, cambios: dict) -> list[str]:
+    """Escribe los campos propuestos por la IA SALVO los que editó una persona (fuente 'humano').
+    La regla se aplica dentro del UPDATE, con el contacto bloqueado. Devuelve las claves escritas."""
+    if not cambios:
+        return []
+    fila = await pool.fetchval(
+        """
+        WITH c AS (SELECT id, ficha FROM contacts WHERE id = $2 AND tenant_id = $1 FOR UPDATE),
+        permitidos AS (
+            SELECT e.key, e.value FROM c, jsonb_each($3::jsonb) AS e
+            WHERE COALESCE(c.ficha -> e.key ->> 'fuente', '') <> 'humano'
+        ),
+        upd AS (
+            UPDATE contacts SET ficha = contacts.ficha || COALESCE((SELECT jsonb_object_agg(key, value) FROM permitidos), '{}'::jsonb)
+            FROM c WHERE contacts.id = c.id RETURNING contacts.id
+        )
+        SELECT COALESCE(array_agg(key ORDER BY key), '{}') FROM permitidos
+        """,
+        tenant_id, contacto_id, cambios,
+    )
+    return list(fila or [])
+
+
+async def avanzar_etapa_ia(pool, tenant_id: int, contacto_id: int, clave: str):
+    """La IA solo AVANZA: etapa destino avanzable_por_ia, nunca 'Perdido', de orden mayor a la actual y
+    solo si el contacto no está en 'Perdido'. Devuelve (anterior_id, nueva_id) o None."""
+    async with pool.acquire() as con:
+        async with con.transaction():
+            fila = await con.fetchrow(
+                """
+                WITH nueva AS (
+                    SELECT id, orden FROM etapas
+                    WHERE tenant_id = $1 AND clave = $3 AND avanzable_por_ia AND NOT es_perdido AND NOT oculta
+                ),
+                act AS (
+                    SELECT c.id, c.etapa_id, e.orden AS orden_actual, COALESCE(e.es_perdido, false) AS perdido
+                    FROM contacts c LEFT JOIN etapas e ON e.id = c.etapa_id
+                    WHERE c.id = $2 AND c.tenant_id = $1 FOR UPDATE OF c
+                )
+                UPDATE contacts SET etapa_id = nueva.id, etapa_desde = now()
+                FROM nueva, act
+                WHERE contacts.id = act.id AND NOT act.perdido AND nueva.orden > COALESCE(act.orden_actual, -2147483648)
+                RETURNING act.etapa_id AS anterior, nueva.id AS nueva
+                """,
+                tenant_id, contacto_id, clave,
+            )
+            if fila:
+                await con.execute(
+                    """INSERT INTO cambios_etapa (tenant_id, contact_id, etapa_anterior_id, etapa_nueva_id, fuente, autor)
+                       VALUES ($1, $2, $3, $4, 'ia', 'Asistente')""",
+                    tenant_id, contacto_id, fila["anterior"], fila["nueva"],
+                )
+                return fila["anterior"], fila["nueva"]
+    return None
+
+
+async def mover_etapa(pool, tenant_id: int, contacto_id: int, etapa_id: int, *, motivo: str | None, autor: str):
+    """Movimiento hecho por una persona: cualquier dirección. 'Perdido' guarda el motivo (validado antes)."""
+    async with pool.acquire() as con:
+        async with con.transaction():
+            anterior = await con.fetchrow("SELECT etapa_id FROM contacts WHERE id = $2 AND tenant_id = $1 FOR UPDATE",
+                                          tenant_id, contacto_id)
+            destino = await con.fetchrow("SELECT id, es_perdido FROM etapas WHERE id = $2 AND tenant_id = $1",
+                                         tenant_id, etapa_id)
+            if not anterior or not destino:
+                return None
+            await con.execute(
+                """
+                UPDATE contacts SET etapa_id = $3,
+                    etapa_desde = CASE WHEN etapa_id IS DISTINCT FROM $3 THEN now() ELSE etapa_desde END,
+                    motivo_perdida = CASE WHEN $4 THEN $5 ELSE NULL END
+                WHERE id = $2 AND tenant_id = $1
+                """,
+                tenant_id, contacto_id, etapa_id, destino["es_perdido"], motivo,
+            )
+            if anterior["etapa_id"] != etapa_id:
+                await con.execute(
+                    """INSERT INTO cambios_etapa (tenant_id, contact_id, etapa_anterior_id, etapa_nueva_id, fuente, autor, motivo)
+                       VALUES ($1, $2, $3, $4, 'humano', $5, $6)""",
+                    tenant_id, contacto_id, anterior["etapa_id"], etapa_id, autor, motivo if destino["es_perdido"] else None,
+                )
+            return anterior["etapa_id"], etapa_id
+
+
+async def editar_campo_humano(pool, tenant_id: int, contacto_id: int, clave: str, valor: str | None) -> None:
+    """Una persona fija el valor (también vacío): desde ahora la IA no lo sobrescribe."""
+    await pool.execute(
+        """
+        UPDATE contacts SET ficha = jsonb_set(ficha, ARRAY[$3::text],
+            jsonb_build_object('valor', $4::text, 'fuente', 'humano', 'actualizado_en', now()), true)
+        WHERE id = $2 AND tenant_id = $1
+        """,
+        tenant_id, contacto_id, clave, valor,
+    )
+
+
+async def liberar_campo(pool, tenant_id: int, contacto_id: int, clave: str) -> None:
+    """Quita el valor del campo y vuelve a permitir que la IA lo complete."""
+    await pool.execute("UPDATE contacts SET ficha = ficha - $3::text WHERE id = $2 AND tenant_id = $1",
+                       tenant_id, contacto_id, clave)
+
+
+async def agregar_etiqueta(pool, tenant_id: int, contacto_id: int, etiqueta: str) -> None:
+    await pool.execute(
+        """UPDATE contacts SET etiquetas = array_append(etiquetas, $3::text)
+           WHERE id = $2 AND tenant_id = $1 AND NOT ($3::text = ANY (etiquetas))""",
+        tenant_id, contacto_id, etiqueta,
+    )
+
+
+async def quitar_etiqueta(pool, tenant_id: int, contacto_id: int, etiqueta: str) -> None:
+    await pool.execute("UPDATE contacts SET etiquetas = array_remove(etiquetas, $3::text) WHERE id = $2 AND tenant_id = $1",
+                       tenant_id, contacto_id, etiqueta)
+
+
+async def listar_etiquetas_tenant(pool, tenant_id: int) -> list[str]:
+    filas = await pool.fetch(
+        "SELECT DISTINCT unnest(etiquetas) AS etiqueta FROM contacts WHERE tenant_id = $1 AND canal = 'whatsapp' ORDER BY 1",
+        tenant_id)
+    return [f["etiqueta"] for f in filas]
+
+
+async def listar_notas(pool, tenant_id: int, contacto_id: int):
+    return await pool.fetch(
+        "SELECT id, autor, texto, creado_en FROM notas WHERE tenant_id = $1 AND contact_id = $2 ORDER BY creado_en DESC, id DESC",
+        tenant_id, contacto_id)
+
+
+async def agregar_nota(pool, tenant_id: int, contacto_id: int, autor: str, texto: str) -> None:
+    await pool.execute("INSERT INTO notas (tenant_id, contact_id, autor, texto) VALUES ($1, $2, $3, $4)",
+                       tenant_id, contacto_id, autor, texto)
+
+
+async def guardar_origen_anuncio(pool, tenant_id: int, contacto_id: int, origen: dict) -> bool:
+    """Guarda SOLO el primer origen del contacto."""
+    estado = await pool.execute(
+        "UPDATE contacts SET origen_anuncio = $3, origen_en = now() WHERE id = $2 AND tenant_id = $1 AND origen_anuncio IS NULL",
+        tenant_id, contacto_id, origen)
+    return estado.endswith(" 1")
+
+
+async def marcar_leido(pool, tenant_id: int, contacto_id: int) -> None:
+    await pool.execute(
+        """UPDATE contacts SET leido_hasta_id = GREATEST(leido_hasta_id, COALESCE(
+               (SELECT max(id) FROM messages WHERE contact_id = $2 AND direccion = 'in'), 0))
+           WHERE id = $2 AND tenant_id = $1""",
+        tenant_id, contacto_id)
+
+
+async def reiniciar_crm_contacto(pool, tenant_id: int, contacto_id: int) -> None:
+    async with pool.acquire() as con:
+        async with con.transaction():
+            await con.execute(
+                """UPDATE contacts SET ficha = '{}'::jsonb, etapa_id = NULL, etapa_desde = NULL, motivo_perdida = NULL,
+                          etiquetas = '{}', extraccion_en = NULL, extraccion_pendiente = false
+                   WHERE id = $2 AND tenant_id = $1""", tenant_id, contacto_id)
+            await con.execute("DELETE FROM notas WHERE tenant_id = $1 AND contact_id = $2", tenant_id, contacto_id)
+            await con.execute("DELETE FROM cambios_etapa WHERE tenant_id = $1 AND contact_id = $2", tenant_id, contacto_id)
+
+
+# --- CRM: límite de extracción por contacto ---------------------------------------
+
+async def reclamar_extraccion(pool, contacto_id: int, intervalo_s: int) -> bool:
+    """True si pasaron al menos intervalo_s desde la última extracción (y la marca como hecha ahora).
+    Atómico: con varios procesos, solo uno la obtiene."""
+    return bool(await pool.fetchval(
+        """UPDATE contacts SET extraccion_en = now(), extraccion_pendiente = false
+           WHERE id = $1 AND (extraccion_en IS NULL OR extraccion_en <= now() - make_interval(secs => $2))
+           RETURNING id""",
+        contacto_id, intervalo_s))
+
+
+async def marcar_extraccion_pendiente(pool, contacto_id: int) -> None:
+    await pool.execute("UPDATE contacts SET extraccion_pendiente = true WHERE id = $1", contacto_id)
+
+
+async def reclamar_extracciones_pendientes(pool, intervalo_s: int, limite: int = 10):
+    """Contactos con extracción postergada cuyo intervalo ya venció (FOR UPDATE SKIP LOCKED: sin duplicados)."""
+    return await pool.fetch(
+        """UPDATE contacts SET extraccion_pendiente = false, extraccion_en = now()
+           WHERE id IN (
+               SELECT id FROM contacts
+               WHERE extraccion_pendiente AND (extraccion_en IS NULL OR extraccion_en <= now() - make_interval(secs => $1))
+               ORDER BY extraccion_en NULLS FIRST LIMIT $2 FOR UPDATE SKIP LOCKED)
+           RETURNING id, tenant_id""",
+        intervalo_s, limite)
+
+
+async def registrar_exportacion(pool, tenant_id: int, usuario: str, filtros: dict, filas: int) -> None:
+    await pool.execute("INSERT INTO exportaciones (tenant_id, usuario, filtros, filas) VALUES ($1, $2, $3, $4)",
+                       tenant_id, usuario, filtros, filas)

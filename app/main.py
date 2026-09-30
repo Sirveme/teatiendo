@@ -1,4 +1,5 @@
 """Te Atiendo · punto de entrada de la aplicación FastAPI."""
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import CFG  # valida las variables de entorno al importar
-from app import auth, db, ia, meta, panel, rutas_asistente, webhook
+from app import auth, crm, db, extraccion, ia, meta, panel, rutas_asistente, rutas_crm, webhook
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("teatiendo")
@@ -56,8 +57,15 @@ async def lifespan(app: FastAPI):
         log.critical("Las tablas no existen. Ejecuta schema.sql en la base de datos (PGAdmin) y vuelve a desplegar.")
         raise RuntimeError("Falta ejecutar schema.sql") from e
 
+    try:
+        await crm.asegurar_preset(pool, tenant_id)  # embudo y campos del rubro si el tenant aún no los tiene
+    except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError) as e:
+        await pool.close()
+        log.critical("Falta la migración 005 (CRM). Ejecuta schema.sql en PGAdmin y vuelve a desplegar.")
+        raise RuntimeError("Falta ejecutar schema.sql (migración 005)") from e
     app.state.pool = pool
     app.state.tenant_id = tenant_id
+    pendientes = asyncio.create_task(extraccion.bucle_pendientes(pool))
     log.info("Te Atiendo listo · tenant %s · número %s · Graph %s · cookie https_only=%s",
              tenant_id, CFG.wa_phone_number_id, CFG.graph_api_version,
              "siempre" if CFG.en_railway else "salvo localhost")
@@ -65,6 +73,7 @@ async def lifespan(app: FastAPI):
     log.info("IA · niveles disponibles: %s · WhatsApp IA: %s",
              ", ".join(disponibles) or "ninguno", "encendido" if ia.CONFIG.whatsapp_activo else "apagado")
     yield
+    pendientes.cancel()
     await meta.cerrar()
     await pool.close()
 
@@ -77,6 +86,7 @@ app.include_router(webhook.router)
 app.include_router(auth.router)
 app.include_router(panel.router)
 app.include_router(rutas_asistente.router)
+app.include_router(rutas_crm.router)
 
 
 @app.exception_handler(auth.NoAutenticado)

@@ -55,6 +55,7 @@ class ConfigIA:
     max_tokens: int
     timeout_s: float
     whatsapp_activo: bool
+    extraccion_intervalo_s: int = 120
     avisos: tuple = ()
 
     @property
@@ -160,6 +161,7 @@ def cargar_config(env=None) -> ConfigIA:
         max_tokens=_entero(env, "IA_MAX_TOKENS", 400, 50, 4000, avisos),
         timeout_s=float(_entero(env, "IA_TIMEOUT_S", 30, 5, 120, avisos)),
         whatsapp_activo=env.get("IA_WHATSAPP_ACTIVO", "").strip().lower() in ("1", "true", "si", "sí", "yes", "on"),
+        extraccion_intervalo_s=_entero(env, "IA_EXTRACCION_INTERVALO_S", 120, 0, 3600, avisos),
         avisos=tuple(avisos),
     )
     for aviso in avisos:
@@ -203,14 +205,14 @@ def _error_http(proveedor: str, modelo: str, estado: int, cuerpo) -> str:
 # --- Adaptadores -------------------------------------------------------------
 
 async def _anthropic(cliente: httpx.AsyncClient, cfg: ConfigIA, nivel: Nivel, sistema: Sistema,
-                     historial: list[Mensaje]) -> tuple[str, Uso]:
+                     historial: list[Mensaje], max_tokens: int, json_modo: bool) -> tuple[str, Uso]:
     respuesta = await cliente.post(URL_ANTHROPIC, headers={
         "x-api-key": cfg.llaves["anthropic"],
         "anthropic-version": VERSION_ANTHROPIC,
         "content-type": "application/json",
     }, json={
         "model": nivel.modelo,
-        "max_tokens": cfg.max_tokens,
+        "max_tokens": max_tokens,  # Anthropic no tiene modo JSON: se pide en el prompt y se lee de forma tolerante
         "system": [
             {"type": "text", "text": sistema.estable, "cache_control": {"type": "ephemeral"}},
             {"type": "text", "text": sistema.variable},
@@ -231,7 +233,7 @@ async def _anthropic(cliente: httpx.AsyncClient, cfg: ConfigIA, nivel: Nivel, si
 
 
 async def _compatible_openai(cliente: httpx.AsyncClient, cfg: ConfigIA, nivel: Nivel, sistema: Sistema,
-                             historial: list[Mensaje]) -> tuple[str, Uso]:
+                             historial: list[Mensaje], max_tokens: int, json_modo: bool) -> tuple[str, Uso]:
     proveedor = nivel.proveedor
     # El bloque estable va primero para que la caché automática por prefijo de estos proveedores lo aproveche.
     carga = {
@@ -240,7 +242,9 @@ async def _compatible_openai(cliente: httpx.AsyncClient, cfg: ConfigIA, nivel: N
                     + [{"role": m.rol, "content": m.texto} for m in historial],
     }
     # Los modelos recientes de OpenAI exigen max_completion_tokens; xAI acepta max_tokens.
-    carga["max_completion_tokens" if proveedor == "openai" else "max_tokens"] = cfg.max_tokens
+    carga["max_completion_tokens" if proveedor == "openai" else "max_tokens"] = max_tokens
+    if json_modo:
+        carga["response_format"] = {"type": "json_object"}
     respuesta = await cliente.post(f"{cfg.base_urls[proveedor]}/chat/completions",
                                    headers={"Authorization": f"Bearer {cfg.llaves[proveedor]}"}, json=carga)
     datos = _json(respuesta)
@@ -272,8 +276,10 @@ ADAPTADORES = {"anthropic": _anthropic, "openai": _compatible_openai, "xai": _co
 
 
 async def generar_respuesta(sistema: Sistema, historial: list[Mensaje], nivel: str,
-                            cfg: ConfigIA | None = None) -> Resultado:
-    """Genera una respuesta. Nunca lanza excepción: los fallos vuelven en Resultado.error, en español."""
+                            cfg: ConfigIA | None = None, *, json_modo: bool = False,
+                            max_tokens: int | None = None) -> Resultado:
+    """Genera una respuesta. Nunca lanza excepción: los fallos vuelven en Resultado.error, en español.
+    json_modo: pide JSON al proveedor cuando lo soporta (OpenAI y xAI)."""
     cfg = cfg or CONFIG
     datos_nivel: Nivel | None = cfg.niveles.get(nivel)
     if datos_nivel is None:
@@ -290,7 +296,8 @@ async def generar_respuesta(sistema: Sistema, historial: list[Mensaje], nivel: s
     resultado = Resultado(False, "", nivel, datos_nivel.proveedor, datos_nivel.modelo)
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(cfg.timeout_s), transport=_transporte) as cliente:
-            texto, uso = await ADAPTADORES[datos_nivel.proveedor](cliente, cfg, datos_nivel, sistema, historial)
+            texto, uso = await ADAPTADORES[datos_nivel.proveedor](cliente, cfg, datos_nivel, sistema, historial,
+                                                                  max_tokens or cfg.max_tokens, json_modo)
         resultado.uso = uso
         resultado.costo = costo_estimado(datos_nivel.precio, uso)
         resultado.texto = texto.strip()

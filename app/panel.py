@@ -1,10 +1,11 @@
 """Panel de administración: bandeja, conversación, nuevo mensaje y plantillas."""
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from app import db, meta
+from app import crm, db, meta
 from app.auth import requiere_login
 from app.config import VISTAS, hora_corta
 
@@ -124,22 +125,64 @@ async def inicio():
     return RedirectResponse("/bandeja", status_code=303)
 
 
+FILTROS_BANDEJA = ("", "no_leidas", "atencion")
+
+
+def _filtros_bandeja(request: Request) -> dict:
+    q = request.query_params
+    filtro = q.get("filtro") or ""
+    try:
+        etapa = int(q.get("etapa")) if q.get("etapa") else None
+    except ValueError:
+        etapa = None
+    return {"q": (q.get("q") or "").strip()[:100], "filtro": filtro if filtro in FILTROS_BANDEJA else "",
+            "etapa": etapa}
+
+
+async def _ctx_bandeja(request: Request, activo_id: int | None = None) -> dict:
+    pool, tenant_id = _pool_tenant(request)
+    f = _filtros_bandeja(request)
+    return {
+        "contactos": await db.listar_contactos(pool, tenant_id, q=f["q"] or None, filtro=f["filtro"] or None,
+                                               etapa_id=f["etapa"]),
+        "filtros": f,
+        "qs": ("?" + urlencode({k: v for k, v in f.items() if v})) if any(f.values()) else "",
+        "hay_filtros": any(f.values()),
+        "activo_id": activo_id,
+        "etapas_filtro": await db.listar_etapas(pool, tenant_id),
+    }
+
+
 @router.get("/bandeja")
 async def bandeja(request: Request):
-    pool, tenant_id = _pool_tenant(request)
-    return _pagina(request, "bandeja.html", "bandeja",
-                   contactos=await db.listar_contactos(pool, tenant_id), contacto=None)
+    return _pagina(request, "bandeja.html", "bandeja", contacto=None, **await _ctx_bandeja(request))
 
 
 @router.get("/bandeja/{contacto_id}")
 async def conversacion(request: Request, contacto_id: int):
     pool, tenant_id = _pool_tenant(request)
+    await _contacto_o_404(pool, tenant_id, contacto_id)
+    await db.marcar_leido(pool, tenant_id, contacto_id)
     ctx = await _ctx_conversacion(request, contacto_id)
-    return _pagina(request, "bandeja.html", "bandeja", contactos=await db.listar_contactos(pool, tenant_id), **ctx)
+    ctx.update(await crm.contexto_detalles(pool, tenant_id, contacto_id))
+    ctx.update(await _ctx_bandeja(request, contacto_id))
+    return _pagina(request, "bandeja.html", "bandeja", **ctx)
+
+
+@router.get("/parcial/conversaciones")
+async def lista_conversaciones(request: Request):
+    try:
+        activo = int(request.query_params.get("activo") or 0) or None
+    except ValueError:
+        activo = None
+    return _parcial(request, "_lista_conversaciones.html", **await _ctx_bandeja(request, activo))
 
 
 @router.get("/parcial/conversacion/{contacto_id}")
 async def conversacion_parcial(request: Request, contacto_id: int):
+    pool, tenant_id = _pool_tenant(request)
+    await _contacto_o_404(pool, tenant_id, contacto_id)
+    await db.marcar_leido(pool, tenant_id, contacto_id)  # la conversación está abierta en pantalla
     return _parcial(request, "_conversacion.html", **await _ctx_conversacion(request, contacto_id))
 
 

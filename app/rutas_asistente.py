@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
-from app import asistente, db, ia
+from app import asistente, crm, db, extraccion, ia
 from app.auth import requiere_login
 from app.config import ZONA
 from app.panel import _avisar, _pagina, _parcial, _pool_tenant
@@ -41,11 +41,15 @@ async def _resumen_mes(pool, tenant_id: int) -> dict:
     }
 
 
-async def _ctx_simulador(pool, tenant_id: int, respuesta=None, error_form: str | None = None) -> dict:
+async def _ctx_simulador(pool, tenant_id: int, respuesta=None, error_form: str | None = None,
+                         extraccion_res=None) -> dict:
     contacto_id = await db.contacto_simulador(pool, tenant_id)
     mensajes = await db.listar_mensajes(pool, tenant_id, contacto_id, 100)
     cfg = await asistente.cargar_asistente(pool, tenant_id)
     return {
+        "sim_ficha": await crm.contexto_detalles(pool, tenant_id, contacto_id),
+        "extraccion_res": extraccion_res,
+        "nivel_basico": ia.CONFIG.niveles["basico"],
         "cfg": cfg,
         "sim_contacto": await db.obtener_contacto(pool, tenant_id, contacto_id),
         "sim_mensajes": mensajes,
@@ -108,7 +112,10 @@ async def probar(request: Request):
     await db.insertar_mensaje(pool, tenant_id, contacto_id, wamid=None, direccion="in", tipo=tipo, texto=texto,
                               estado=None, canal=db.CANAL_WEB)
     respuesta = await asistente.atender(pool, tenant_id, contacto_id, tipo=tipo, origen="simulador", canal=db.CANAL_WEB)
-    return _parcial(request, "_simulador.html", **await _ctx_simulador(pool, tenant_id, respuesta))
+    # En el simulador la ficha se completa siempre (sin el límite por contacto) para poder demostrarlo.
+    extraccion_res = await extraccion.extraer(pool, tenant_id, contacto_id, respetar_limite=False)
+    return _parcial(request, "_simulador.html", **await _ctx_simulador(pool, tenant_id, respuesta,
+                                                                      extraccion_res=extraccion_res))
 
 
 @router.post("/asistente/probar/reiniciar")
@@ -117,6 +124,7 @@ async def reiniciar(request: Request):
     contacto_id = await db.contacto_simulador(pool, tenant_id)
     await db.borrar_mensajes_contacto(pool, tenant_id, contacto_id)  # el uso medido se conserva
     await db.cambiar_modo(pool, tenant_id, contacto_id, "ia")
+    await db.reiniciar_crm_contacto(pool, tenant_id, contacto_id)
     return _parcial(request, "_simulador.html", **await _ctx_simulador(pool, tenant_id))
 
 
@@ -150,6 +158,7 @@ async def guardar_configuracion(request: Request):
     form = await request.form()
     datos = {clave: str(form.get(clave, "")).strip() for clave in LIMITES_CONFIG}
     datos["activo"] = form.get("activo") == "1"
+    datos["extraccion_activa"] = form.get("extraccion_activa") == "1"
     datos["trato"] = form.get("trato") if form.get("trato") in ("tu", "usted") else actual["trato"]
     # Un nivel no disponible se muestra deshabilitado y no se envía: se conserva el guardado.
     datos["nivel"] = form.get("nivel") if form.get("nivel") in ia.NIVELES else actual["nivel"]

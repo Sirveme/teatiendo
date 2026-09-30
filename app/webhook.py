@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import PlainTextResponse
 
-from app import asistente, db
+from app import asistente, db, extraccion
 from app.config import CFG
 
 log = logging.getLogger("teatiendo.webhook")
@@ -91,8 +91,9 @@ async def procesar(pool, payload: dict) -> None:
                     c.get("wa_id"): (c.get("profile") or {}).get("name")
                     for c in valor.get("contacts", [])
                 }
+                ids_meta = {c.get("wa_id"): c.get("user_id") for c in valor.get("contacts", []) if c.get("user_id")}
                 for msg in valor.get("messages", []):
-                    await _procesar_mensaje(pool, tenant_id, msg, nombres)
+                    await _procesar_mensaje(pool, tenant_id, msg, nombres, ids_meta)
                 for status in valor.get("statuses", []):
                     await _procesar_status(pool, tenant_id, status)
                 for error in valor.get("errors", []):
@@ -101,15 +102,33 @@ async def procesar(pool, payload: dict) -> None:
         log.exception("Error procesando un evento del webhook (el payload quedó guardado en webhook_events)")
 
 
-async def _procesar_mensaje(pool, tenant_id: int, msg: dict, nombres: dict) -> None:
+CAMPOS_REFERRAL = ("source_id", "source_type", "source_url", "headline", "body", "media_type", "image_url",
+                   "video_url", "thumbnail_url", "ctwa_clid")
+
+
+def origen_de_referral(msg: dict) -> dict | None:
+    """Datos del anuncio con clic a WhatsApp ("referral"), solo las claves conocidas y con texto."""
+    referral = msg.get("referral")
+    if not isinstance(referral, dict):
+        return None
+    datos = {k: str(referral[k])[:1000] for k in CAMPOS_REFERRAL if referral.get(k)}
+    return datos or None
+
+
+async def _procesar_mensaje(pool, tenant_id: int, msg: dict, nombres: dict, ids_meta: dict | None = None) -> None:
     wa_id = msg.get("from")
     wamid = msg.get("id")
-    if not wa_id or not wamid:
+    if not wamid:
         return
+    if not wa_id:
+        # Usuarios con nombre de usuario pueden llegar sin teléfono (solo from_user_id). Aún no se soporta enviarles.
+        log.warning("Mensaje %s sin número de teléfono (from_user_id=%s): se omite", wamid, msg.get("from_user_id"))
+        return
+    meta_user_id = msg.get("from_user_id") or (ids_meta or {}).get(wa_id)
     marca = int(msg.get("timestamp") or 0)
     recibido_en = datetime.fromtimestamp(marca, tz=timezone.utc) if marca else datetime.now(timezone.utc)
     contacto_id = await db.upsert_contacto_entrante(pool, tenant_id, wa_id, nombres.get(wa_id), recibido_en,
-                                                    canal=db.CANAL_WHATSAPP)
+                                                    canal=db.CANAL_WHATSAPP, meta_user_id=meta_user_id)
     tipo, texto = _extraer_contenido(msg)
     nuevo = await db.insertar_mensaje(
         pool, tenant_id, contacto_id, wamid=wamid, direccion="in", tipo=tipo,
@@ -118,10 +137,17 @@ async def _procesar_mensaje(pool, tenant_id: int, msg: dict, nombres: dict) -> N
     if nuevo is None:
         log.info("Mensaje %s ya registrado; se ignora el duplicado", wamid)
         return
+    origen = origen_de_referral(msg)
+    if origen:
+        await db.guardar_origen_anuncio(pool, tenant_id, contacto_id, origen)  # solo el primero
     try:
         await asistente.al_recibir_whatsapp(pool, tenant_id, contacto_id, nuevo, tipo)
     except Exception:
         log.exception("El asistente falló al procesar el mensaje %s (el mensaje quedó guardado)", wamid)
+    try:
+        await extraccion.al_recibir_whatsapp(pool, tenant_id, contacto_id, nuevo)
+    except Exception:
+        log.exception("La extracción de ficha falló para el mensaje %s (la ficha quedó como estaba)", wamid)
 
 
 async def _procesar_status(pool, tenant_id: int, status: dict) -> None:

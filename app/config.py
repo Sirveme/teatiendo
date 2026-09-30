@@ -1,4 +1,5 @@
 """Configuración: validación de variables de entorno, motor de vistas y formatos de fecha."""
+import hashlib
 import os
 import re
 import sys
@@ -125,7 +126,19 @@ def fecha_hora(dt: datetime | None) -> str:
     return local.strftime("%d/%m/%Y %H:%M") if local else ""
 
 
+def _version_estaticos() -> str:
+    """Hash corto de estilo.css y app.js: cambia la URL en cada despliegue con cambios y evita que el
+    navegador siga usando la versión anterior en caché."""
+    huella = hashlib.sha1()
+    for nombre in ("estilo.css", "app.js"):
+        ruta = Path(__file__).parent / "static" / nombre
+        if ruta.exists():
+            huella.update(ruta.read_bytes())
+    return huella.hexdigest()[:10]
+
+
 VISTAS = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+VISTAS.env.globals["VERSION_ESTATICOS"] = _version_estaticos()
 VISTAS.env.filters.update(hora=hora_corta, dia=dia, hora_lista=hora_lista, fecha_hora=fecha_hora)
 VISTAS.env.globals.update(
     ESTADOS_MENSAJE={
