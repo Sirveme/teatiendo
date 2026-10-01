@@ -1,0 +1,33 @@
+{% if error %}
+<div class="alerta alerta-error" role="alert">{{ error }}</div>
+{% else %}
+<p class="ayuda-bloque">Conversación de {{ mensajes }} turno{{ 's' if mensajes != 1 }}. Último mensaje del cliente: «{{ ultimo | truncate(120) }}».</p>
+<div class="grid-comparador">
+  {% for item in resultados %}
+  {% set n, r = item.nivel, item.resultado %}
+  <article class="tarjeta resultado-modelo {{ 'resultado-error' if not r or not r.ok }}">
+    <header class="resultado-cab">
+      <strong>{{ n.nombre_visible or n.modelo if n else 'Modelo' }}</strong>
+      {% if n %}<span class="nota-det">{{ n.proveedor }} · esfuerzo {{ n.esfuerzo }}</span>{% endif %}
+    </header>
+    {% if not r %}
+    <p class="resultado-texto">No se pudo usar: {{ item.error }}</p>
+    {% else %}
+    {% if r.ok %}
+    <p class="resultado-texto">{{ r.texto | whatsapp }}</p>
+    {% elif r.truncado %}
+    <p class="resultado-texto"><strong>Respuesta cortada por el límite de tokens</strong>, incluso tras reintentar.</p>
+    {% else %}
+    <p class="resultado-texto">{{ r.error }}</p>
+    {% endif %}
+    <dl class="resultado-datos">
+      <div><dt>Tiempo</dt><dd>{{ '%.1f' | format(r.duracion_ms / 1000) }} s</dd></div>
+      <div><dt>Tokens</dt><dd>{{ r.uso.entrada + r.uso.cache_lectura + r.uso.cache_escritura }} / {{ r.uso.salida }}{% if r.uso.razonamiento is not none %} ({{ r.uso.razonamiento }} raz.){% endif %}</dd></div>
+      <div><dt>Costo</dt><dd>{{ ('US$ %.5f' | format(r.costo)) if r.costo is not none else 'sin precio' }}</dd></div>
+    </dl>
+    {% if r.reintentos %}<p class="nota-det">Se reintentó por límite de tokens.</p>{% endif %}
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>
+{% endif %}

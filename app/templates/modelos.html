@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block titulo %}Modelos de IA{% endblock %}
+
+{% macro campos_modelo(m) %}
+<div class="fila-2">
+  <label>Proveedor
+    <select name="proveedor_id" required>
+      <option value="">Elige…</option>
+      {% for p in proveedores %}<option value="{{ p.id }}" {{ 'selected' if m and m.proveedor_id == p.id }}>{{ p.nombre }}{{ '' if p.activo else ' (inactivo)' }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Id del modelo en la API
+    <input name="modelo_id" value="{{ m.modelo_id if m else '' }}" maxlength="120" required autocomplete="off" placeholder="Cópialo de la consola del proveedor">
+  </label>
+</div>
+<div class="fila-2">
+  <label>Nombre visible <input name="nombre_visible" value="{{ m.nombre_visible if m else '' }}" maxlength="80" required></label>
+  <label>Esfuerzo de razonamiento
+    <select name="esfuerzo">{% for e in esfuerzos %}<option {{ 'selected' if (m.esfuerzo if m else 'low') == e }}>{{ e }}</option>{% endfor %}</select>
+  </label>
+</div>
+<div class="fila-precios">
+  {% for campo, etiqueta in [('precio_entrada', 'Entrada'), ('precio_salida', 'Salida'), ('precio_cache_lectura', 'Lectura de caché'), ('precio_cache_escritura', 'Escritura de caché')] %}
+  <label>{{ etiqueta }} <small>(US$/millón)</small>
+    <input name="{{ campo }}" value="{{ '%g' | format(m[campo]) if m and m[campo] is not none else '' }}" inputmode="decimal" autocomplete="off">
+  </label>
+  {% endfor %}
+</div>
+<div class="fila-2">
+  <label>Máximo de tokens de salida <input type="number" name="max_tokens" min="100" max="64000" value="{{ m.max_tokens if m else 1024 }}"></label>
+  <label class="opcion"><input type="checkbox" name="activo" value="1" {{ 'checked' if not m or m.activo }}> Activo</label>
+</div>
+<label>Parámetros extra (JSON)
+  <textarea name="parametros_extra" rows="2" spellcheck="false" placeholder='{"temperature": 0.3}'>{{ (m.parametros_extra | tojson) if m and m.parametros_extra else '' }}</textarea>
+</label>
+<p class="ayuda">Se agregan al cuerpo de cada solicitud. No pueden reemplazar <code>model</code>, <code>messages</code>, <code>system</code>, <code>stream</code> ni el límite de tokens.</p>
+<label>Notas <textarea name="notas" rows="2" maxlength="500">{{ m.notas if m else '' }}</textarea></label>
+{% endmacro %}
+
+{% block contenido %}
+<div class="pagina">
+  <div class="pagina-cab">
+    <h1>Modelos de IA</h1>
+    <p>Configuración de toda la plataforma (solo superadministrador). Cada nivel usa el modelo asignado aquí; si no hay uno utilizable, usa las variables de entorno.</p>
+  </div>
+
+  {% if pestana != 'sin_migracion' %}
+  <nav class="pestanas" aria-label="Secciones del panel de modelos">
+    {% for clave, etiqueta in [('niveles', 'Niveles'), ('proveedores', 'Proveedores'), ('modelos', 'Modelos'), ('comparador', 'Comparador'), ('precios', 'Historial de precios'), ('uso', 'Uso de pruebas')] %}
+    <a href="/superadmin/ia?pestana={{ clave }}" class="pestana {{ 'activa' if pestana == clave }}" {{ 'aria-current=page' if pestana == clave }}>{{ etiqueta }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+
+  {% if error %}<div class="alerta alerta-error" role="alert">{{ error }}</div>{% endif %}
+
+  {% if pestana == 'niveles' %}
+  <form method="post" action="/superadmin/ia/niveles" class="tarjeta formulario">
+    <h2>Niveles</h2>
+    <p class="ayuda-bloque">Los negocios eligen un nivel en «Asistente → Configuración». Deja «Variables de entorno» para seguir usando <code>IA_NIVEL_*</code> en ese nivel.</p>
+    {% for n in estado_niveles %}
+    {% set e = n.efectivo %}
+    <div class="fila-nivel">
+      <label class="nivel-elegir">{{ n.etiqueta }}
+        <select name="{{ n.clave }}">
+          <option value="">— Variables de entorno —</option>
+          {% for m in modelos_activos %}<option value="{{ m.id }}" {{ 'selected' if n.asignado_id == m.id }}>{{ m.nombre_visible }} · {{ m.proveedor }}</option>{% endfor %}
+        </select>
+      </label>
+      <div class="nivel-estado">
+        {% if e.disponible %}
+        <span class="chip-estado {{ 'chip-base' if e.origen == 'base' else 'chip-entorno' }}">{{ 'Base de datos' if e.origen == 'base' else 'Variables de entorno' }}</span>
+        <span>{{ e.nombre_visible or e.modelo }} · {{ e.proveedor }} · esfuerzo {{ e.esfuerzo }}</span>
+        {% else %}
+        <span class="chip-estado chip-error">No disponible</span><span>{{ e.motivo }}</span>
+        {% endif %}
+        {% if n.motivo_base and e.origen != 'base' %}<p class="nota-det">El modelo asignado no se puede usar ({{ n.motivo_base }}); se usa el respaldo.</p>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    <button class="boton" type="submit">Guardar niveles</button>
+  </form>
+
+  {% elif pestana == 'proveedores' %}
+  {% if cifrado_motivo %}<div class="alerta alerta-error" role="alert">No se pueden guardar llaves: {{ cifrado_motivo }}</div>{% endif %}
+  <section class="lista-items">
+    {% for p in proveedores %}
+    <details class="tarjeta item-panel">
+      <summary>
+        <strong>{{ p.nombre }}</strong>
+        <span class="chip-estado {{ 'chip-base' if p.activo else 'chip-error' }}">{{ 'Activo' if p.activo else 'Inactivo' }}</span>
+        <span class="nota-det">{{ 'Anthropic' if p.tipo == 'anthropic' else 'Compatible con OpenAI' }} · {{ enmascarar(p.llave_ultimos4) }} · {{ p.modelos }} modelo{{ 's' if p.modelos != 1 }}</span>
+      </summary>
+      <form method="post" action="/superadmin/ia/proveedores/{{ p.id }}" class="formulario">
+        <div class="fila-2">
+          <label>Nombre <input name="nombre" value="{{ p.nombre }}" maxlength="60" required></label>
+          <label>Tipo
+            <select name="tipo">{% for t in tipos %}<option value="{{ t }}" {{ 'selected' if p.tipo == t }}>{{ 'Anthropic' if t == 'anthropic' else 'Compatible con OpenAI' }}</option>{% endfor %}</select>
+          </label>
+        </div>
+        <div class="fila-2">
+          <label>URL base <input name="url_base" value="{{ p.url_base }}" required></label>
+          <label>Campo del límite de tokens
+            <select name="campo_max_tokens">{% for c in ['max_tokens', 'max_completion_tokens'] %}<option {{ 'selected' if p.campo_max_tokens == c }}>{{ c }}</option>{% endfor %}</select>
+          </label>
+        </div>
+        <label>Llave de API nueva
+          <input type="password" name="llave" autocomplete="new-password" placeholder="{{ enmascarar(p.llave_ultimos4) }} · deja vacío para conservarla" {{ 'disabled' if cifrado_motivo }}>
+        </label>
+        <div class="fila-opciones">
+          {% if p.llave_ultimos4 %}<label class="opcion"><input type="checkbox" name="quitar_llave" value="1"> Quitar la llave guardada</label>{% endif %}
+          <label class="opcion"><input type="checkbox" name="activo" value="1" {{ 'checked' if p.activo }}> Activo</label>
+        </div>
+        <button class="boton boton-sm" type="submit">Guardar proveedor</button>
+      </form>
+    </details>
+    {% else %}
+    <p class="ayuda-bloque">Todavía no hay proveedores en la base: la IA usa las variables de entorno.</p>
+    {% endfor %}
+  </section>
+
+  <form method="post" action="/superadmin/ia/proveedores" class="tarjeta formulario">
+    <h2>Agregar proveedor</h2>
+    <div class="fila-2">
+      <label>Nombre <input name="nombre" maxlength="60" required placeholder="Anthropic, OpenAI, xAI…"></label>
+      <label>Tipo
+        <select name="tipo"><option value="anthropic">Anthropic</option><option value="compatible_openai">Compatible con OpenAI (OpenAI, xAI…)</option></select>
+      </label>
+    </div>
+    <div class="fila-2">
+      <label>URL base <input name="url_base" required placeholder="https://api.anthropic.com/v1"></label>
+      <label>Campo del límite de tokens
+        <select name="campo_max_tokens"><option>max_tokens</option><option>max_completion_tokens</option></select>
+      </label>
+    </div>
+    <p class="ayuda">Anthropic: <code>https://api.anthropic.com/v1</code> con <code>max_tokens</code>. OpenAI: <code>https://api.openai.com/v1</code> con <code>max_completion_tokens</code>. xAI: <code>https://api.x.ai/v1</code> con <code>max_tokens</code>.</p>
+    <label>Llave de API <input type="password" name="llave" autocomplete="new-password" {{ 'disabled' if cifrado_motivo }}></label>
+    <p class="ayuda">Se guarda cifrada con <code>IA_LLAVE_MAESTRA</code>. Nunca vuelve a mostrarse: solo sus últimos 4 caracteres.</p>
+    <label class="opcion"><input type="checkbox" name="activo" value="1" checked> Activo</label>
+    <button class="boton" type="submit">Agregar proveedor</button>
+  </form>
+
+  {% elif pestana == 'modelos' %}
+  <section class="lista-items">
+    {% for m in modelos %}
+    <details class="tarjeta item-panel">
+      <summary>
+        <strong>{{ m.nombre_visible }}</strong>
+        <span class="chip-estado {{ 'chip-base' if m.activo else 'chip-error' }}">{{ 'Activo' if m.activo else 'Inactivo' }}</span>
+        <span class="nota-det"><code>{{ m.modelo_id }}</code> · {{ m.proveedor }}{% if m.precio_entrada is not none %} · US$ {{ '%g' | format(m.precio_entrada) }} / {{ '%g' | format(m.precio_salida) }} por millón{% else %} · sin precio{% endif %} · esfuerzo {{ m.esfuerzo }}</span>
+      </summary>
+      <form method="post" action="/superadmin/ia/modelos/{{ m.id }}" class="formulario">
+        {{ campos_modelo(m) }}
+        <button class="boton boton-sm" type="submit">Guardar modelo</button>
+      </form>
+      <form class="form-probar" hx-post="/superadmin/ia/modelos/{{ m.id }}/probar" hx-target="#prueba-{{ m.id }}" hx-swap="innerHTML" hx-disabled-elt="find button">
+        <label>Probar el modelo
+          <input name="mensaje" value="{{ mensaje_prueba }}" maxlength="1000">
+        </label>
+        <button class="boton boton-sec boton-sm" type="submit"><span class="txt-normal">Probar</span><span class="txt-cargando">Probando…</span></button>
+      </form>
+      <div id="prueba-{{ m.id }}" class="prueba-resultado"></div>
+    </details>
+    {% else %}
+    <p class="ayuda-bloque">Todavía no hay modelos. Agrega primero un proveedor.</p>
+    {% endfor %}
+  </section>
+
+  {% if proveedores %}
+  <form method="post" action="/superadmin/ia/modelos" class="tarjeta formulario">
+    <h2>Agregar modelo</h2>
+    {{ campos_modelo(none) }}
+    <button class="boton" type="submit">Agregar modelo</button>
+  </form>
+  {% endif %}
+
+  {% elif pestana == 'comparador' %}
+  <form class="tarjeta formulario" hx-post="/superadmin/ia/comparar" hx-target="#resultado-comparador" hx-swap="innerHTML"
+        hx-disabled-elt="find button[type=submit]" data-comparador data-max="{{ max_comparar }}">
+    <h2>Comparador</h2>
+    <p class="ayuda-bloque">Envía la conversación actual del simulador ({{ mensajes_simulador }} mensaje{{ 's' if mensajes_simulador != 1 }}) y el prompt del asistente a 2 o 3 modelos a la vez. No guarda mensajes; el uso queda registrado como «comparador».</p>
+    <div class="modelos-comparar">
+      {% for m in modelos_activos %}
+      <label class="opcion casilla-modelo"><input type="checkbox" name="modelo_ids" value="{{ m.id }}"><span>{{ m.nombre_visible }} <span class="nota-det">· {{ m.proveedor }}</span></span></label>
+      {% else %}
+      <p class="nota-det">No hay modelos activos.</p>
+      {% endfor %}
+    </div>
+    <label>Mensaje del cliente (opcional, se agrega al final de la conversación)
+      <input name="mensaje" maxlength="1000" placeholder="Por ejemplo: ¿hacen envíos a Iquitos?">
+    </label>
+    <button class="boton" type="submit"><span class="txt-normal">Comparar</span><span class="txt-cargando">Comparando…</span></button>
+  </form>
+  <div id="resultado-comparador"></div>
+
+  {% elif pestana == 'precios' %}
+  <section class="tarjeta">
+    <h2>Historial de precios</h2>
+    <p class="ayuda-bloque">Cada precio rige desde que se guarda. Cada consulta queda registrada con el precio vigente en ese momento, así que los costos ya registrados no cambian.</p>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Vigente desde</th><th>Modelo</th><th>Entrada</th><th>Salida</th><th>Lectura caché</th><th>Escritura caché</th><th>Registrado por</th></tr></thead>
+        <tbody>
+          {% for h in historial %}
+          <tr>
+            <td>{{ h.vigente_desde | fecha_hora }}</td>
+            <td>{{ h.nombre_visible }} <small class="nota-det">{{ h.proveedor }}</small></td>
+            {% for c in ['precio_entrada', 'precio_salida', 'precio_cache_lectura', 'precio_cache_escritura'] %}
+            <td>{{ ('US$ %g' | format(h[c])) if h[c] is not none else '—' }}</td>
+            {% endfor %}
+            <td>{{ h.registrado_por or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="vacio-tabla">Todavía no hay precios registrados.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% elif pestana == 'uso' %}
+  <section class="tarjeta">
+    <h2>Uso de pruebas este mes</h2>
+    <p class="ayuda-bloque">Las pruebas y el comparador son costo de la plataforma: no aparecen en el resumen de ningún negocio.</p>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Origen</th><th>Consultas</th><th>Con error</th><th>Tokens entrada</th><th>Tokens salida</th><th>Costo estimado</th></tr></thead>
+        <tbody>
+          {% for f in uso %}
+          <tr><td>{{ 'Probar modelo' if f.origen == 'prueba' else 'Comparador' }}</td><td>{{ f.consultas }}</td><td>{{ f.errores }}</td>
+              <td>{{ '{:,}'.format(f.entrada) }}</td><td>{{ '{:,}'.format(f.salida) }}</td><td>US$ {{ '%.4f' | format(f.costo) }}</td></tr>
+          {% else %}
+          <tr><td colspan="6" class="vacio-tabla">Sin pruebas este mes.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="ayuda-bloque">Total del mes: <strong>US$ {{ '%.4f' | format(uso_total) }}</strong></p>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

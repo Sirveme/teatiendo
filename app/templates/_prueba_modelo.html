@@ -1,0 +1,19 @@
+{% if error %}
+<div class="aviso-conv aviso-error" role="alert">No se pudo probar: {{ error }}</div>
+{% elif resultado %}
+{% set r = resultado %}
+<div class="resultado-modelo {{ 'resultado-error' if not r.ok }}">
+  {% if r.ok %}
+  <p class="resultado-texto">{{ r.texto | whatsapp }}</p>
+  {% elif r.truncado %}
+  <p class="resultado-texto"><strong>Respuesta cortada por el límite de tokens</strong>, incluso tras reintentar. En WhatsApp no se enviaría.</p>
+  {% else %}
+  <p class="resultado-texto">{{ r.error }}</p>
+  {% endif %}
+  <p class="sim-metricas">
+    {{ r.modelo }} · {{ '%.1f' | format(r.duracion_ms / 1000) }} s · {{ r.uso.entrada }} entrada{% if r.uso.cache_lectura or r.uso.cache_escritura %} + {{ r.uso.cache_lectura + r.uso.cache_escritura }} caché{% endif %}
+    · {{ r.uso.salida }} salida{% if r.uso.razonamiento is not none %} ({{ r.uso.razonamiento }} de razonamiento){% endif %}
+    · {{ ('US$ %.5f' | format(r.costo)) if r.costo is not none else 'sin precio' }}{% if r.reintentos %} · se reintentó por límite de tokens{% endif %}
+  </p>
+</div>
+{% endif %}

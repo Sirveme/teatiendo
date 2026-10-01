@@ -16,12 +16,12 @@
     {% for m in sim_mensajes %}
     <div class="burbuja {{ 'sim-cliente' if m.direccion == 'in' else 'sim-asistente' }}">
       {% if m.direccion == 'out' %}<span class="etiqueta">{{ cfg.nombre_asistente }}</span>{% endif %}
-      <p>{{ m.texto }}</p>
+      <p>{{ m.texto | whatsapp }}</p>
       {% set u = usos.get(m.id) %}
       {% if u %}
       <div class="sim-metricas">
-        {{ u.modelo }} · {{ u.tokens_entrada }} entrada{% if u.tokens_cache_lectura or u.tokens_cache_escritura %} + {{ u.tokens_cache_lectura + u.tokens_cache_escritura }} caché{% endif %} · {{ u.tokens_salida }} salida ·
-        {{ ('US$ %.5f' | format(u.costo_estimado)) if u.costo_estimado is not none else 'sin precio' }} · {{ '%.1f' | format(u.duracion_ms / 1000) }} s
+        {{ u.modelo }} · {{ u.tokens_entrada }} entrada{% if u.tokens_cache_lectura or u.tokens_cache_escritura %} + {{ u.tokens_cache_lectura + u.tokens_cache_escritura }} caché{% endif %} · {{ u.tokens_salida }} salida{% if u.tokens_razonamiento %} ({{ u.tokens_razonamiento }} de razonamiento){% endif %} ·
+        {{ ('US$ %.5f' | format(u.costo_estimado)) if u.costo_estimado is not none else 'sin precio' }} · {{ '%.1f' | format(u.duracion_ms / 1000) }} s{% if u.reintentos %} · se reintentó por límite de tokens{% endif %}
       </div>
       {% elif m.direccion == 'out' %}
       <div class="sim-metricas">Mensaje automático, sin llamada a la IA</div>
@@ -31,7 +31,13 @@
     <p class="sim-vacio">Escribe como si fueras un cliente. Por ejemplo: «¿Atienden hoy?» o «¿Cuánto cuesta la consulta?».</p>
     {% endfor %}
 
-    {% if respuesta and respuesta.accion == 'error' %}
+    {% if respuesta and respuesta.accion == 'error' and respuesta.resultado and respuesta.resultado.truncado %}
+    <div class="aviso-conv aviso-error" role="alert">
+      <strong>Respuesta cortada por el límite de tokens.</strong> Se reintentó con más margen y tampoco alcanzó.
+      En WhatsApp <strong>no se enviaría</strong>: el cliente recibiría el mensaje de derivación y la conversación pasaría a una persona.
+      Revisa <code>IA_MAX_TOKENS</code> o el esfuerzo de razonamiento del nivel.
+    </div>
+    {% elif respuesta and respuesta.accion == 'error' %}
     <div class="aviso-conv aviso-error" role="alert">No se pudo generar la respuesta: {{ respuesta.motivo }}</div>
     {% elif respuesta and respuesta.accion in ('derivar', 'aviso_no_texto') %}
     <div class="aviso-conv" role="status">{{ respuesta.motivo }}</div>

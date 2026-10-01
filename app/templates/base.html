@@ -53,6 +53,11 @@
       <a href="/ajustes" class="{{ 'activo' if seccion == 'ajustes' }}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6"/></svg><span>Ajustes</span>
       </a>
+      {% if superadmin %}
+      <a href="/superadmin/ia" class="{{ 'activo' if seccion == 'modelos' }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v3M16 3v3M8 18v3M16 18v3M3 8h3M3 16h3M18 8h3M18 16h3M6 6h12v12H6zM10 10h4v4h-4z"/></svg><span>Modelos de IA</span>
+      </a>
+      {% endif %}
     </nav>
     <div class="barra-pie">
       <span class="usuario" title="{{ usuario }}">{{ usuario }}</span>

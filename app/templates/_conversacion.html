@@ -53,7 +53,7 @@
       {% if loop.changed(m.creado_en | dia) %}<div class="separador">{{ m.creado_en | dia }}</div>{% endif %}
       <div class="burbuja {{ 'saliente' if m.direccion == 'out' else 'entrante' }} {{ 'fallida' if m.estado == 'failed' }}">
         {% if m.tipo == 'template' %}<span class="etiqueta">Plantilla</span>{% elif m.generado_por_ia %}<span class="etiqueta">Asistente</span>{% endif %}
-        <p>{{ m.texto or '[Mensaje sin texto]' }}</p>
+        <p>{{ (m.texto or '[Mensaje sin texto]') | whatsapp }}</p>
         <span class="meta-burbuja">
           <time>{{ m.creado_en | hora }}</time>
           {% if m.direccion == 'out' and m.estado in ESTADOS_MENSAJE %}
