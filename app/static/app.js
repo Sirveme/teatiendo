@@ -265,6 +265,18 @@
     dialogo.showModal();
   }
 
+  /* --- Panel de modelos: el comparador admite como máximo 3 modelos --- */
+  document.addEventListener('change', function (e) {
+    var casilla = e.target;
+    var form = casilla.closest && casilla.closest('[data-comparador]');
+    if (!form || casilla.name !== 'modelo_ids' || !casilla.checked) return;
+    var maximo = parseInt(form.getAttribute('data-max'), 10) || 3;
+    if (buscar(form, 'input[name=modelo_ids]:checked').length > maximo) {
+      casilla.checked = false;
+      window.alert('Puedes comparar como máximo ' + maximo + ' modelos a la vez.');
+    }
+  });
+
   document.addEventListener('change', function (e) {
     var select = e.target;
     if (select.matches('[data-select-etapa]')) actualizarMotivo(select);
