@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup, escape
 
 REQUERIDAS = (
     "DATABASE_URL",
@@ -88,6 +89,16 @@ def cargar() -> Config:
 # Se valida al importar: si falta algo, el proceso termina antes de aceptar tráfico.
 CFG = cargar()
 
+
+def superadmins() -> set[str]:
+    """SUPERADMIN_EMAILS (lista separada por comas). Si no está definida, el superadministrador es ADMIN_EMAIL."""
+    lista = {c.strip().casefold() for c in os.getenv("SUPERADMIN_EMAILS", "").split(",") if c.strip()}
+    return lista or {CFG.admin_email.casefold()}
+
+
+def es_superadmin(email: str | None) -> bool:
+    return bool(email) and email.casefold() in superadmins()
+
 # ---------------------------------------------------------------------------
 # Vistas (Jinja2) y formatos
 # ---------------------------------------------------------------------------
@@ -126,6 +137,23 @@ def fecha_hora(dt: datetime | None) -> str:
     return local.strftime("%d/%m/%Y %H:%M") if local else ""
 
 
+_FORMATOS_WHATSAPP = (
+    (re.compile(r"```(.+?)```", re.DOTALL), r"<code>\1</code>"),
+    (re.compile(r"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])"), r"<strong>\1</strong>"),
+    (re.compile(r"(?<![\w_])_(?=\S)([^_\n]+?)(?<=\S)_(?![\w_])"), r"<em>\1</em>"),
+    (re.compile(r"(?<![\w~])~(?=\S)([^~\n]+?)(?<=\S)~(?![\w~])"), r"<s>\1</s>"),
+)
+
+
+def formato_whatsapp(texto) -> Markup:
+    """*negrita*, _cursiva_, ~tachado~ y ```monoespaciado``` como en WhatsApp. Escapa el HTML ANTES de dar
+    formato, así el texto del cliente o del modelo nunca inyecta etiquetas."""
+    html = str(escape(texto or ""))
+    for patron, reemplazo in _FORMATOS_WHATSAPP:
+        html = patron.sub(reemplazo, html)
+    return Markup(html)
+
+
 def _version_estaticos() -> str:
     """Hash corto de estilo.css y app.js: cambia la URL en cada despliegue con cambios y evita que el
     navegador siga usando la versión anterior en caché."""
@@ -139,7 +167,8 @@ def _version_estaticos() -> str:
 
 VISTAS = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 VISTAS.env.globals["VERSION_ESTATICOS"] = _version_estaticos()
-VISTAS.env.filters.update(hora=hora_corta, dia=dia, hora_lista=hora_lista, fecha_hora=fecha_hora)
+VISTAS.env.filters.update(hora=hora_corta, dia=dia, hora_lista=hora_lista, fecha_hora=fecha_hora,
+                          whatsapp=formato_whatsapp)
 VISTAS.env.globals.update(
     ESTADOS_MENSAJE={
         "sent": ("✓", "Enviado"),

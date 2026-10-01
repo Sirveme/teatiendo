@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 
 from app import crm, db, meta
 from app.auth import requiere_login
-from app.config import VISTAS, hora_corta
+from app.config import VISTAS, es_superadmin, hora_corta
 
 router = APIRouter(dependencies=[Depends(requiere_login)])
 
@@ -20,7 +20,9 @@ ESTADOS_EN_REVISION = ("PENDING", "IN_APPEAL")
 
 def _pagina(request: Request, plantilla: str, seccion: str, **ctx):
     """Página completa: consume el aviso flash de la sesión."""
-    ctx.update(usuario=request.session.get("admin"), seccion=seccion, aviso=request.session.pop("aviso", None))
+    usuario = request.session.get("admin")
+    ctx.update(usuario=usuario, superadmin=es_superadmin(usuario), seccion=seccion,
+               aviso=request.session.pop("aviso", None))
     return VISTAS.TemplateResponse(request, plantilla, ctx)
 
 

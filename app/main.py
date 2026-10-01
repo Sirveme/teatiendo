@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import CFG  # valida las variables de entorno al importar
-from app import auth, crm, db, extraccion, ia, meta, panel, rutas_asistente, rutas_crm, webhook
+from app import auth, crm, db, extraccion, ia, meta, panel, rutas_asistente, rutas_crm, rutas_modelos, webhook
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("teatiendo")
@@ -87,6 +87,7 @@ app.include_router(auth.router)
 app.include_router(panel.router)
 app.include_router(rutas_asistente.router)
 app.include_router(rutas_crm.router)
+app.include_router(rutas_modelos.router)
 
 
 @app.exception_handler(auth.NoAutenticado)

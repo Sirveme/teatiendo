@@ -12,13 +12,13 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from app import asistente, crm, db, ia
+from app import asistente, config_ia, crm, db, ia
 from app.config import ZONA
 
 log = logging.getLogger("teatiendo.extraccion")
 
 NIVEL = "basico"
-MAX_TOKENS = 500
+MAX_TOKENS = 800  # el JSON de la ficha es corto; el margen cubre el razonamiento
 ORIGEN_USO = "extraccion"
 ETIQUETAS_TIPO_PROMPT = {"texto": "texto", "numero": "número", "moneda": "monto en soles, solo el número",
                          "opcion": "opción", "documento": "DNI de 8 o RUC de 11 dígitos"}
@@ -91,26 +91,27 @@ def leer_json(texto: str) -> dict | None:
 
 async def extraer(pool, tenant_id: int, contacto_id: int, *, respetar_limite: bool = True,
                   ahora: datetime | None = None) -> ResultadoExtraccion:
-    nivel = ia.CONFIG.niveles[NIVEL]
+    cfg_ia = await config_ia.obtener(pool)
+    nivel = cfg_ia.niveles[NIVEL]
     if not nivel.disponible:
         return ResultadoExtraccion("sin_nivel", detalle=f"La ficha automática usa el nivel Básico: {nivel.motivo}.")
     campos = await db.listar_campos(pool, tenant_id)
     etapas = await db.listar_etapas(pool, tenant_id, incluir_ocultas=True)
     if not campos and not any(e["avanzable_por_ia"] for e in etapas):
         return ResultadoExtraccion("sin_campos", detalle="No hay campos de ficha configurados.")
-    if respetar_limite and not await db.reclamar_extraccion(pool, contacto_id, ia.CONFIG.extraccion_intervalo_s):
+    if respetar_limite and not await db.reclamar_extraccion(pool, contacto_id, cfg_ia.extraccion_intervalo_s):
         await db.marcar_extraccion_pendiente(pool, contacto_id)  # la siguiente incluirá los mensajes nuevos
         return ResultadoExtraccion("limitada", detalle="Se hará al vencer el intervalo entre extracciones.")
 
     contacto = await db.obtener_contacto(pool, tenant_id, contacto_id)
-    texto = transcripcion(await db.historial_para_ia(pool, tenant_id, contacto_id, ia.CONFIG.historial_mensajes))
+    texto = transcripcion(await db.historial_para_ia(pool, tenant_id, contacto_id, cfg_ia.historial_mensajes))
     if not contacto or not texto:
         return ResultadoExtraccion("sin_mensajes")
 
     cfg = await asistente.cargar_asistente(pool, tenant_id)
     actual = crm.etapa_efectiva(etapas, contacto["etapa_id"])
     sistema = construir_sistema(cfg["nombre_negocio"], campos, etapas, actual, ahora or datetime.now(ZONA))
-    resultado = await ia.generar_respuesta(sistema, [ia.Mensaje("user", texto)], NIVEL, json_modo=True,
+    resultado = await ia.generar_respuesta(sistema, [ia.Mensaje("user", texto)], NIVEL, cfg_ia, json_modo=True,
                                            max_tokens=MAX_TOKENS)
     await db.registrar_uso_ia(pool, tenant_id, origen=ORIGEN_USO, resultado=resultado, message_id=None)
     if not resultado.ok:

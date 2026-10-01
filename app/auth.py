@@ -5,10 +5,10 @@ from collections import defaultdict, deque
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from app.config import CFG, VISTAS
+from app.config import CFG, VISTAS, es_superadmin
 
 log = logging.getLogger("teatiendo.auth")
 router = APIRouter()
@@ -27,6 +27,14 @@ def requiere_login(request: Request) -> str:
     admin = request.session.get("admin")
     if not admin:
         raise NoAutenticado()
+    return admin
+
+
+def requiere_superadmin(request: Request) -> str:
+    """Panel de modelos de IA: solo SUPERADMIN_EMAILS (o ADMIN_EMAIL si no está definida)."""
+    admin = requiere_login(request)
+    if not es_superadmin(admin):
+        raise HTTPException(status_code=403, detail="Solo el superadministrador puede ver esta sección.")
     return admin
 
 

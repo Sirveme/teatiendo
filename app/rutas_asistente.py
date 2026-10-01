@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
-from app import asistente, crm, db, extraccion, ia
+from app import asistente, config_ia, crm, db, extraccion, ia
 from app.auth import requiere_login
 from app.config import ZONA
 from app.panel import _avisar, _pagina, _parcial, _pool_tenant
@@ -46,15 +46,16 @@ async def _ctx_simulador(pool, tenant_id: int, respuesta=None, error_form: str |
     contacto_id = await db.contacto_simulador(pool, tenant_id)
     mensajes = await db.listar_mensajes(pool, tenant_id, contacto_id, 100)
     cfg = await asistente.cargar_asistente(pool, tenant_id)
+    cfg_ia = await config_ia.obtener(pool)
     return {
         "sim_ficha": await crm.contexto_detalles(pool, tenant_id, contacto_id),
         "extraccion_res": extraccion_res,
-        "nivel_basico": ia.CONFIG.niveles["basico"],
+        "nivel_basico": cfg_ia.niveles["basico"],
         "cfg": cfg,
         "sim_contacto": await db.obtener_contacto(pool, tenant_id, contacto_id),
         "sim_mensajes": mensajes,
         "usos": await db.uso_por_mensajes(pool, tenant_id, [m["id"] for m in mensajes if m["generado_por_ia"]]),
-        "nivel_actual": ia.CONFIG.niveles[cfg["nivel"]],
+        "nivel_actual": cfg_ia.niveles[cfg["nivel"]],
         "respuesta": respuesta,
         "error_form": error_form,
     }
@@ -65,12 +66,13 @@ async def _pantalla(request: Request, pestana: str, cfg_formulario: dict | None 
     cfg = await asistente.cargar_asistente(pool, tenant_id)
     if cfg_formulario:
         cfg = {**cfg, **cfg_formulario}
+    cfg_ia = await config_ia.obtener(pool)
     ctx = {
         "pestana": pestana,
         "cfg": cfg,
         "error": error,
-        "niveles": ia.CONFIG.niveles,
-        "config_ia": ia.CONFIG,
+        "niveles": cfg_ia.niveles,
+        "config_ia": cfg_ia,
         "secciones": asistente.SECCIONES,
         "ayudas": AYUDAS_SECCION,
         "ejemplo": asistente.EJEMPLO_CLINICA,
@@ -165,7 +167,7 @@ async def guardar_configuracion(request: Request):
 
     error = None
     largos = [clave for clave, limite in LIMITES_CONFIG.items() if len(datos[clave]) > limite]
-    nivel = ia.CONFIG.niveles[datos["nivel"]]
+    nivel = (await config_ia.obtener(pool)).niveles[datos["nivel"]]
     if largos:
         error = "Hay campos demasiado largos: " + ", ".join(largos) + "."
     elif datos["activo"] and not nivel.disponible:

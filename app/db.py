@@ -345,13 +345,15 @@ async def registrar_uso_ia(pool, tenant_id: int, *, origen: str, resultado, mess
     return await pool.fetchval(
         """
         INSERT INTO ia_uso (tenant_id, message_id, origen, nivel, proveedor, modelo, tokens_entrada, tokens_salida,
-                            tokens_cache_lectura, tokens_cache_escritura, costo_estimado, duracion_ms, ok, error)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                            tokens_cache_lectura, tokens_cache_escritura, costo_estimado, duracion_ms, ok, error,
+                            tokens_razonamiento, truncado, reintentos, modelo_ref_id, precio_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
         RETURNING id
         """,
         tenant_id, message_id, origen, resultado.nivel, resultado.proveedor, resultado.modelo, uso.entrada,
         uso.salida, uso.cache_lectura, uso.cache_escritura, resultado.costo, resultado.duracion_ms, resultado.ok,
-        resultado.error,
+        resultado.error, uso.razonamiento, resultado.truncado, resultado.reintentos, resultado.modelo_ref_id,
+        resultado.precio_id,
     )
 
 
@@ -361,7 +363,7 @@ async def uso_por_mensajes(pool, tenant_id: int, message_ids: list[int]) -> dict
     filas = await pool.fetch(
         """
         SELECT message_id, proveedor, modelo, nivel, tokens_entrada, tokens_salida, tokens_cache_lectura,
-               tokens_cache_escritura, costo_estimado, duracion_ms
+               tokens_cache_escritura, costo_estimado, duracion_ms, tokens_razonamiento, reintentos
         FROM ia_uso WHERE tenant_id = $1 AND message_id = ANY($2::bigint[])
         """,
         tenant_id, message_ids,
@@ -377,7 +379,7 @@ async def resumen_uso(pool, tenant_id: int, desde: datetime):
                COALESCE(sum(tokens_cache_lectura + tokens_cache_escritura), 0) AS cache,
                COALESCE(sum(costo_estimado), 0) AS costo,
                count(*) FILTER (WHERE ok AND costo_estimado IS NULL) AS sin_precio
-        FROM ia_uso WHERE tenant_id = $1 AND creado_en >= $2
+        FROM ia_uso WHERE tenant_id = $1 AND creado_en >= $2 AND origen NOT IN ('prueba', 'comparador')
         GROUP BY origen ORDER BY origen
         """,
         tenant_id, desde,
@@ -389,7 +391,8 @@ async def ultimos_usos(pool, tenant_id: int, limite: int = 15):
         """
         SELECT creado_en, origen, nivel, proveedor, modelo, tokens_entrada, tokens_salida,
                tokens_cache_lectura + tokens_cache_escritura AS cache, costo_estimado, duracion_ms, ok, error
-        FROM ia_uso WHERE tenant_id = $1 ORDER BY creado_en DESC, id DESC LIMIT $2
+        FROM ia_uso WHERE tenant_id = $1 AND origen NOT IN ('prueba', 'comparador')
+        ORDER BY creado_en DESC, id DESC LIMIT $2
         """,
         tenant_id, limite,
     )
@@ -679,3 +682,140 @@ async def reclamar_extracciones_pendientes(pool, intervalo_s: int, limite: int =
 async def registrar_exportacion(pool, tenant_id: int, usuario: str, filtros: dict, filas: int) -> None:
     await pool.execute("INSERT INTO exportaciones (tenant_id, usuario, filtros, filas) VALUES ($1, $2, $3, $4)",
                        tenant_id, usuario, filtros, filas)
+
+
+# --- Panel de modelos (superadministrador) ------------------------------------------
+
+_SELECT_MODELO_COMPLETO = """
+    SELECT m.id AS modelo_ref_id, m.modelo_id, m.nombre_visible, m.max_tokens, m.esfuerzo, m.parametros_extra,
+           m.activo AS modelo_activo, p.id AS proveedor_id, p.nombre AS proveedor, p.tipo, p.url_base,
+           p.campo_max_tokens, p.llave_cifrada, p.activo AS proveedor_activo,
+           h.id AS precio_id, h.precio_entrada, h.precio_salida, h.precio_cache_lectura, h.precio_cache_escritura
+    FROM ia_modelos m
+    JOIN ia_proveedores p ON p.id = m.proveedor_id
+    LEFT JOIN LATERAL (
+        SELECT id, precio_entrada, precio_salida, precio_cache_lectura, precio_cache_escritura
+        FROM ia_precios_historial WHERE modelo_id = m.id AND vigente_desde <= now()
+        ORDER BY vigente_desde DESC, id DESC LIMIT 1
+    ) h ON TRUE
+"""
+
+
+async def niveles_ia_configurados(pool):
+    """Niveles asignados en la base, con todo lo necesario para llamar al modelo y el precio vigente."""
+    return await pool.fetch(
+        "SELECT n.nivel, x.* FROM ia_niveles n JOIN (" + _SELECT_MODELO_COMPLETO + ") x ON x.modelo_ref_id = n.modelo_id")
+
+
+async def modelo_ia_completo(pool, modelo_id: int):
+    return await pool.fetchrow(_SELECT_MODELO_COMPLETO + " WHERE m.id = $1", modelo_id)
+
+
+async def listar_proveedores_ia(pool):
+    return await pool.fetch(
+        """SELECT p.id, p.nombre, p.tipo, p.url_base, p.campo_max_tokens, p.llave_ultimos4, p.activo, p.actualizado_en,
+                  (SELECT count(*) FROM ia_modelos m WHERE m.proveedor_id = p.id) AS modelos
+           FROM ia_proveedores p ORDER BY p.nombre""")
+
+
+async def crear_proveedor_ia(pool, *, nombre, tipo, url_base, campo_max_tokens, activo, llave_cifrada, llave_ultimos4) -> int:
+    return await pool.fetchval(
+        """INSERT INTO ia_proveedores (nombre, tipo, url_base, campo_max_tokens, activo, llave_cifrada, llave_ultimos4)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
+        nombre, tipo, url_base, campo_max_tokens, activo, llave_cifrada, llave_ultimos4)
+
+
+async def actualizar_proveedor_ia(pool, proveedor_id: int, *, nombre, tipo, url_base, campo_max_tokens, activo,
+                                  cambiar_llave: bool, llave_cifrada=None, llave_ultimos4=None) -> None:
+    """cambiar_llave=False conserva la llave guardada (el formulario nunca la recibe de vuelta)."""
+    await pool.execute(
+        """UPDATE ia_proveedores SET nombre = $2, tipo = $3, url_base = $4, campo_max_tokens = $5, activo = $6,
+                  llave_cifrada = CASE WHEN $7 THEN $8 ELSE llave_cifrada END,
+                  llave_ultimos4 = CASE WHEN $7 THEN $9 ELSE llave_ultimos4 END,
+                  actualizado_en = now()
+           WHERE id = $1""",
+        proveedor_id, nombre, tipo, url_base, campo_max_tokens, activo, cambiar_llave, llave_cifrada, llave_ultimos4)
+
+
+async def listar_modelos_ia(pool):
+    return await pool.fetch(
+        """SELECT m.*, p.nombre AS proveedor, p.activo AS proveedor_activo, (p.llave_cifrada IS NOT NULL) AS con_llave
+           FROM ia_modelos m JOIN ia_proveedores p ON p.id = m.proveedor_id
+           ORDER BY m.activo DESC, p.nombre, m.nombre_visible""")
+
+
+async def obtener_modelo_ia(pool, modelo_id: int):
+    return await pool.fetchrow("SELECT * FROM ia_modelos WHERE id = $1", modelo_id)
+
+
+CAMPOS_PRECIO = ("precio_entrada", "precio_salida", "precio_cache_lectura", "precio_cache_escritura")
+
+
+async def crear_modelo_ia(pool, datos: dict, usuario: str) -> int:
+    async with pool.acquire() as con:
+        async with con.transaction():
+            modelo_id = await con.fetchval(
+                """INSERT INTO ia_modelos (proveedor_id, modelo_id, nombre_visible, precio_entrada, precio_salida,
+                       precio_cache_lectura, precio_cache_escritura, max_tokens, esfuerzo, parametros_extra, activo, notas)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id""",
+                datos["proveedor_id"], datos["modelo_id"], datos["nombre_visible"], *[datos[c] for c in CAMPOS_PRECIO],
+                datos["max_tokens"], datos["esfuerzo"], datos["parametros_extra"], datos["activo"], datos["notas"])
+            await con.execute(
+                """INSERT INTO ia_precios_historial (modelo_id, precio_entrada, precio_salida, precio_cache_lectura,
+                       precio_cache_escritura, registrado_por) VALUES ($1, $2, $3, $4, $5, $6)""",
+                modelo_id, *[datos[c] for c in CAMPOS_PRECIO], usuario)
+            return modelo_id
+
+
+async def actualizar_modelo_ia(pool, modelo_id: int, datos: dict, usuario: str) -> bool:
+    """Devuelve True si cambió algún precio (entonces se agrega una fila al historial: rige desde ahora)."""
+    async with pool.acquire() as con:
+        async with con.transaction():
+            actual = await con.fetchrow("SELECT * FROM ia_modelos WHERE id = $1 FOR UPDATE", modelo_id)
+            if not actual:
+                return False
+            await con.execute(
+                """UPDATE ia_modelos SET proveedor_id = $2, modelo_id = $3, nombre_visible = $4, precio_entrada = $5,
+                       precio_salida = $6, precio_cache_lectura = $7, precio_cache_escritura = $8, max_tokens = $9,
+                       esfuerzo = $10, parametros_extra = $11, activo = $12, notas = $13, actualizado_en = now()
+                   WHERE id = $1""",
+                modelo_id, datos["proveedor_id"], datos["modelo_id"], datos["nombre_visible"],
+                *[datos[c] for c in CAMPOS_PRECIO], datos["max_tokens"], datos["esfuerzo"], datos["parametros_extra"],
+                datos["activo"], datos["notas"])
+            cambio = any((actual[c] is None) != (datos[c] is None) or
+                         (actual[c] is not None and float(actual[c]) != float(datos[c])) for c in CAMPOS_PRECIO)
+            if cambio:
+                await con.execute(
+                    """INSERT INTO ia_precios_historial (modelo_id, precio_entrada, precio_salida, precio_cache_lectura,
+                           precio_cache_escritura, registrado_por) VALUES ($1, $2, $3, $4, $5, $6)""",
+                    modelo_id, *[datos[c] for c in CAMPOS_PRECIO], usuario)
+            return cambio
+
+
+async def niveles_ia(pool) -> dict:
+    return {f["nivel"]: f["modelo_id"] for f in await pool.fetch("SELECT nivel, modelo_id FROM ia_niveles")}
+
+
+async def asignar_nivel_ia(pool, nivel: str, modelo_id: int | None, usuario: str) -> None:
+    await pool.execute(
+        """INSERT INTO ia_niveles (nivel, modelo_id, actualizado_por) VALUES ($1, $2, $3)
+           ON CONFLICT (nivel) DO UPDATE SET modelo_id = EXCLUDED.modelo_id, actualizado_por = EXCLUDED.actualizado_por,
+               actualizado_en = now()""",
+        nivel, modelo_id, usuario)
+
+
+async def historial_precios(pool, limite: int = 200):
+    return await pool.fetch(
+        """SELECT h.*, m.nombre_visible, m.modelo_id AS id_api, p.nombre AS proveedor
+           FROM ia_precios_historial h JOIN ia_modelos m ON m.id = h.modelo_id JOIN ia_proveedores p ON p.id = m.proveedor_id
+           ORDER BY h.vigente_desde DESC, h.id DESC LIMIT $1""", limite)
+
+
+async def uso_plataforma(pool, desde: datetime):
+    """Pruebas y comparador del superadministrador (no cuentan en el resumen de ningún negocio)."""
+    return await pool.fetch(
+        """SELECT origen, count(*) AS consultas, count(*) FILTER (WHERE NOT ok) AS errores,
+                  COALESCE(sum(tokens_entrada + tokens_cache_lectura + tokens_cache_escritura), 0) AS entrada,
+                  COALESCE(sum(tokens_salida), 0) AS salida, COALESCE(sum(costo_estimado), 0) AS costo
+           FROM ia_uso WHERE origen IN ('prueba', 'comparador') AND creado_en >= $1
+           GROUP BY origen ORDER BY origen""", desde)
